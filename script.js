@@ -1,5 +1,5 @@
 const ws = new WebSocket(
-    "wss://ws.binaryws.com/websockets/v3"
+    "wss://api.derivws.com/trading/v1/options/ws/public"
 );
 
 const price = document.getElementById("price");
