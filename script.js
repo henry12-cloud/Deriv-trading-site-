@@ -1,4 +1,25 @@
 const connectionStatus = document.getElementById("connectionStatus");
+console.log("TEST: script.js loaded");
+
+const testWs = new WebSocket(
+    "wss://api.derivws.com/trading/v1/options/ws/public?app_id=34qPaViEQZZw84Mc5thoO"
+);
+
+testWs.onopen = function () {
+    console.log("TEST: DERIV CONNECTED");
+};
+
+testWs.onerror = function (error) {
+    console.log("TEST: DERIV CONNECTION ERROR", error);
+};
+
+testWs.onclose = function (event) {
+    console.log(
+        "TEST: DERIV CLOSED",
+        event.code,
+        event.reason
+    );
+};
 const accountStatus = document.getElementById("accountStatus");
 const marketSelect = document.getElementById("marketSelect");
 const selectedMarket = document.getElementById("selectedMarket");
