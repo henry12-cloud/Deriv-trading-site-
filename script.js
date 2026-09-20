@@ -1,3 +1,4 @@
+alert("NEW SCRIPT LOADED");
 const connectionStatus = document.getElementById("connectionStatus");
 const accountStatus = document.getElementById("accountStatus");
 const marketSelect = document.getElementById("marketSelect");
