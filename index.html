@@ -11,188 +11,123 @@
 
 <body>
 
-    <header>
-        <h1>Deriv Trading</h1>
-        <p>Third-Party Trading Interface</p>
-    </header>
-
-    <main>
-
-        <section class="account">
-            <h2>Account</h2>
-            <p>Balance: <span id="balance">$0.00</span></p>
-        </section>
-
-        <section class="market">
-            <h2>Market</h2>
-
-            <select id="symbol">
-                <option value="R_100">Volatility 100</option>
-                <option value="R_75">Volatility 75</option>
-                <option value="R_50">Volatility 50</option>
-            </select>
-
-            <div class="price">
-                <span id="price">Waiting...</span>
-            </div>
-        </section>
-
-        <section class="chart">
-            <h2>Chart</h2>
-
-            <div id="chart">
-                Chart will appear here
-            </div>
-        </section>
-
-        <section class="trade">
-            <h2>Trade</h2>
-
-            <input
-                type="number"
-                id="amount"
-                placeholder="Stake amount"
-                value="1"
-                min="0.35"
-                step="0.01"
-            >
-
-            <div class="buttons">
-                <button id="buy">BUY</button>
-                <button id="sell">SELL</button>
-            </div>
-        </section>
-
-        <section class="open-trades">
-            <h2>Open Trade</h2>
-
-            <div id="openTrade">
-                No open trade
-            </div>
-        </section>
-
-    </main>
-
-    <script src="script.js"></script>
-
-</body>
-</html>
-      min="0.35"
-        step="0.01"
-    >
-
-    <label for="tradeDuration">Duration</label>
-    <input
-        type="number"
-        id="tradeDuration"
-        value="15"
-        min="1"
-        step="1"
-    >
-
-<div id="tradeButtons">
-    <button id="buyButton">BUY</button>
-    <button id="sellButton">SELL</button>
-</div>
-      
-      <div id="accountSection">
-    <button id="loginButton">LOGIN WITH DERIV</button>
-    <p id="accountStatus">Account: Not connected</p>
-      </div>
-
-    <p id="tradeStatus">Trade Status: Waiting</p>
-
-    </div>
-</div>
-</main>
-
-    <script src="script.js"></script>
-
-</body>
-</html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    <title>Deriv Trading Site</title>
-
-    <link rel="stylesheet" href="style.css">
-</head>
-
-<body>
-
-    <header>
-        <h1>Deriv Trading</h1>
-        <p>Third-Party Trading Interface</p>
-    </header>
+<header>
+    <h1>Deriv Trading</h1>
+    <p>Third-Party Trading Interface</p>
+</header>
 
 <main>
-    <h2>Welcome</h2>
-    <p>Our trading platform is starting.</p>
 
     <div id="connectionStatus">
         Connecting to Deriv...
     </div>
-  
-  <div id="marketSection">
-    <h3>Available Markets</h3>
 
-    <select id="marketSelect">
-        <option>Loading markets...</option>
-    </select>
+    <section id="marketSection">
 
-    <p id="marketStatus">Waiting for market data...</p>
-<p id="selectedMarket">Selected market: None</p>
-    <p id="livePrice">Live Price: --</p>
-  <h3>Live Price Chart</h3>  
-    <p>Current Price: <strong id="chartPrice">--</strong></p>
-    <p id="chartStatus">Market is live ●</p>
-    <p id="chartTime">Last update: --</p>
-<canvas id="chart" width="600" height="300"></canvas>
-    
-    <p id="proposalStatus">Quote: Waiting...</p>
-<p id="askPrice">Ask Price: --</p>
-<p id="payout">Potential Payout: --</p>
-    <div id="tradingPanel">
+        <h2>Available Markets</h2>
 
-    <h3>Trade</h3>
+        <select id="marketSelect">
+            <option>Loading markets...</option>
+        </select>
 
-    <label for="tradeAmount">Trade Amount</label>
-    <input
-        type="number"
-        id="tradeAmount"
-        value="1"
-        min="0.35"
-        step="0.01"
-    >
+        <p id="marketStatus">
+            Waiting for market data...
+        </p>
 
-    <label for="tradeDuration">Duration</label>
-    <input
-        type="number"
-        id="tradeDuration"
-        value="15"
-        min="1"
-        step="1"
-    >
+        <p id="selectedMarket">
+            Selected market: None
+        </p>
 
-<div id="tradeButtons">
-    <button id="buyButton">BUY</button>
-    <button id="sellButton">SELL</button>
-</div>
-      
-      <div id="accountSection">
-    <button id="loginButton">LOGIN WITH DERIV</button>
-    <p id="accountStatus">Account: Not connected</p>
-      </div>
+        <p id="livePrice">
+            Live Price: --
+        </p>
 
-    <p id="tradeStatus">Trade Status: Waiting</p>
+        <h3>Live Price Chart</h3>
 
-    </div>
-</div>
-</main>
+        <p>
+            Current Price:
+            <strong id="chartPrice">--</strong>
+        </p>
 
-    <script src="script.js"></script>
+        <p id="chartStatus">
+            Market is live ●
+        </p>
 
-</body>
-    </html>
+        <p id="chartTime">
+            Last update: --
+        </p>
+
+        <canvas id="chart" width="600" height="300"></canvas>
+
+    </section>
+
+
+    <section id="tradingPanel">
+
+        <h2>Trade</h2>
+
+        <p id="proposalStatus">
+            Quote: Waiting...
+        </p>
+
+        <p id="askPrice">
+            Ask Price: --
+        </p>
+
+        <p id="payout">
+            Potential Payout: --
+        </p>
+
+        <label for="tradeAmount">
+            Trade Amount
+        </label>
+
+        <input
+            type="number"
+            id="tradeAmount"
+            value="1"
+            min="0.35"
+            step="0.01"
+        >
+
+        <label for="tradeDuration">
+            Duration
+        </label>
+
+        <input
+            type="number"
+            id="tradeDuration"
+            value="15"
+            min="1"
+            step="1"
+        >
+
+        <div id="tradeButtons">
+
+            <button id="buyButton">
+                BUY
+            </button>
+
+            <button id="sellButton">
+                SELL
+            </button>
+
+        </div>
+
+    </section>
+
+
+    <section id="accountSection">
+
+        <h2>Account</h2>
+
+        <button id="loginButton">
+            LOGIN WITH DERIV
+        </button>
+
+        <p id="accountStatus">
+            Account: Not connected
+        </p>
+
+        <p id="balance">
+            Balance: --
