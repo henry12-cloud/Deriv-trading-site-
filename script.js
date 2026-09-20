@@ -1,4 +1,8 @@
-alert("NEW SCRIPT LOADED");
+document.body.insertAdjacentHTML(
+    "afterbegin",
+    "<h2 style='color:red;text-align:center'>NEW SCRIPT IS RUNNING</h2>"
+);
+
 const connectionStatus = document.getElementById("connectionStatus");
 const accountStatus = document.getElementById("accountStatus");
 const marketSelect = document.getElementById("marketSelect");
