@@ -1,41 +1,43 @@
 const connectionStatus = document.getElementById("connectionStatus");
 const marketSelect = document.getElementById("marketSelect");
-const marketStatus = document.getElementById("marketStatus");
 const selectedMarket = document.getElementById("selectedMarket");
 const livePrice = document.getElementById("livePrice");
 const chartPrice = document.getElementById("chartPrice");
+const marketStatus = document.getElementById("marketStatus");
 const lastUpdate = document.getElementById("lastUpdate");
 
-const ws = new WebSocket(
+const socket = new WebSocket(
     "wss://api.derivws.com/trading/v1/options/ws/public"
 );
 
-ws.onopen = function () {
+socket.onopen = function () {
 
-    console.log("DERIV CONNECTED");
+    console.log("CONNECTED TO DERIV");
 
-    connectionStatus.textContent = "Connected to Deriv ✓";
+    connectionStatus.textContent =
+        "Connected to Deriv ✓";
 
-    marketStatus.textContent = "Loading markets...";
+    marketStatus.textContent =
+        "Loading markets...";
 
-    ws.send(JSON.stringify({
+    socket.send(JSON.stringify({
         active_symbols: "brief",
-        contract_type: ["CALL", "PUT"]
+        req_id: 1
     }));
 };
 
 
-ws.onmessage = function (event) {
+socket.onmessage = function (event) {
 
     console.log("DERIV RESPONSE:", event.data);
 
     const data = JSON.parse(event.data);
 
-    if (data.error) {
-        connectionStatus.textContent =
-            "Deriv Error: " + data.error.message;
 
-        console.log("DERIV ERROR:", data.error);
+    if (data.error) {
+
+        connectionStatus.textContent =
+            "Deriv error: " + data.error.message;
 
         return;
     }
@@ -43,89 +45,75 @@ ws.onmessage = function (event) {
 
     if (data.msg_type === "active_symbols") {
 
-        console.log("MARKETS:", data.active_symbols);
-
-        marketSelect.innerHTML = "";
-
         if (
             !data.active_symbols ||
             data.active_symbols.length === 0
         ) {
 
             marketStatus.textContent =
-                "Deriv returned no markets.";
+                "Deriv returned an empty market list";
 
             return;
         }
 
 
+        marketSelect.innerHTML = "";
+
+
         data.active_symbols.forEach(function (market) {
 
-            const option = document.createElement("option");
+            const option =
+                document.createElement("option");
 
-            option.value = market.underlying_symbol;
+            option.value =
+                market.underlying_symbol;
 
             option.textContent =
                 market.underlying_symbol_name ||
                 market.underlying_symbol;
 
             marketSelect.appendChild(option);
+
         });
 
 
         marketStatus.textContent =
-            data.active_symbols.length + " markets loaded";
+            data.active_symbols.length +
+            " markets loaded";
 
-        selectMarket();
 
+        marketSelect.dispatchEvent(
+            new Event("change")
+        );
+    }
+
+
+    if (data.msg_type === "tick") {
+
+        const price = data.tick.quote;
+
+        livePrice.textContent =
+            "Live Price: " + price;
+
+        chartPrice.textContent =
+            "Current Price: " + price;
+
+        lastUpdate.textContent =
+            "Last update: " +
+            new Date().toLocaleTimeString();
     }
 };
 
 
-function selectMarket() {
+socket.onerror = function () {
 
-    const symbol = marketSelect.value;
+    connectionStatus.textContent =
+        "Connection error";
 
-    if (!symbol) {
-        return;
-    }
-
-    const name =
-        marketSelect.options[
-            marketSelect.selectedIndex
-        ].textContent;
-
-    selectedMarket.textContent =
-        "Selected market: " + name;
-
-    livePrice.textContent =
-        "Live Price: Loading...";
-
-    chartPrice.textContent =
-        "Current Price: Loading...";
-
-    lastUpdate.textContent =
-        "Last update: Loading...";
+};
 
 
-    ws.send(JSON.stringify({
-        ticks: symbol,
-        subscribe: 1
-    }));
-}
-
-
-marketSelect.addEventListener(
-    "change",
-    function () {
-
-        selectMarket();
-
-    }
-);
-
-
-ws.onclose = function () {
+socket.onclose = function () {
 
     connectionStatus.textContent =
         "Disconnected from Deriv";
@@ -133,11 +121,38 @@ ws.onclose = function () {
 };
 
 
-ws.onerror = function (error) {
+marketSelect.addEventListener(
+    "change",
+    function () {
 
-    console.log("WEBSOCKET ERROR:", error);
+        const symbol =
+            marketSelect.value;
 
-    connectionStatus.textContent =
-        "WebSocket connection error";
+        const name =
+            marketSelect.options[
+                marketSelect.selectedIndex
+            ].text;
 
-};
+
+        selectedMarket.textContent =
+            "Selected market: " + name;
+
+
+        livePrice.textContent =
+            "Live Price: Loading...";
+
+
+        chartPrice.textContent =
+            "Current Price: Loading...";
+
+
+        socket.send(JSON.stringify({
+
+            ticks: symbol,
+
+            subscribe: 1
+
+        }));
+
+    }
+);
