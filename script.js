@@ -7,7 +7,7 @@ const marketStatus = document.getElementById("marketStatus");
 const lastUpdate = document.getElementById("lastUpdate");
 
 const socket = new WebSocket(
-    "wss://api.derivws.com/trading/v1/options/ws/public"
+    "wss://api.derivws.com/trading/v1/options/ws/public?app_id=34qPaViEQZZw84Mc5thoO"
 );
 
 socket.onopen = function () {
