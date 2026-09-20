@@ -1,25 +1,4 @@
 const connectionStatus = document.getElementById("connectionStatus");
-console.log("TEST: script.js loaded");
-
-const testWs = new WebSocket(
-    "wss://api.derivws.com/trading/v1/options/ws/public?app_id=34qPaViEQZZw84Mc5thoO"
-);
-
-testWs.onopen = function () {
-    console.log("TEST: DERIV CONNECTED");
-};
-
-testWs.onerror = function (error) {
-    console.log("TEST: DERIV CONNECTION ERROR", error);
-};
-
-testWs.onclose = function (event) {
-    console.log(
-        "TEST: DERIV CLOSED",
-        event.code,
-        event.reason
-    );
-};
 const accountStatus = document.getElementById("accountStatus");
 const marketSelect = document.getElementById("marketSelect");
 const selectedMarket = document.getElementById("selectedMarket");
@@ -47,6 +26,18 @@ const ws = new WebSocket(
 
 /* Connection opened */
 ws.onopen = function () {
+
+    connectionStatus.textContent =
+        "Connected to Deriv ✓";
+
+    marketStatus.textContent =
+        "Connection successful. Loading markets...";
+
+    ws.send(JSON.stringify({
+        active_symbols: "brief",
+        req_id: 1
+    }));
+};
 
     connectionStatus.textContent =
         "Connected to Deriv ✓";
@@ -244,7 +235,15 @@ function drawChart() {
     ctx.stroke();
 }
 /* WebSocket error */
-ws.onerror = function (error) {
+/* WebSocket error */
+ws.onerror = function () {
+
+    connectionStatus.textContent =
+        "Deriv connection failed";
+
+    marketStatus.textContent =
+        "Could not connect to Deriv WebSocket.";
+};
 
     connectionStatus.textContent =
         "WebSocket connection error";
@@ -254,6 +253,14 @@ ws.onerror = function (error) {
 
 /* WebSocket closed */
 ws.onclose = function (event) {
+
+    connectionStatus.textContent =
+        "Deriv connection closed";
+
+    marketStatus.textContent =
+        "WebSocket closed. Code: " +
+        event.code;
+};
 
     connectionStatus.textContent =
         "Connection closed";
