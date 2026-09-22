@@ -14,11 +14,6 @@ const CLIENT_ID = process.env.CLIENT_ID;
 
 const REDIRECT_URI =
     "https://tradedollars.onrender.com/oauth/callback";
-// ======================================
-// TEMPORARY PKCE STORAGE
-// ======================================
-
-const oauthRequests = new Map();
 
 // ======================================
 // SERVE WEBSITE
@@ -50,9 +45,20 @@ app.get("/login", function (req, res) {
             .update(codeVerifier)
             .digest("base64url");
 
-    oauthRequests.set(state, {
-        codeVerifier: codeVerifier
-    });
+    const oauthData =
+        Buffer.from(
+            JSON.stringify({
+                state: state,
+                codeVerifier: codeVerifier
+            })
+        ).toString("base64url");
+
+    res.setHeader(
+        "Set-Cookie",
+        "deriv_oauth=" +
+        oauthData +
+        "; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600"
+    );
 
     const authURL =
         new URL(
@@ -94,119 +100,180 @@ app.get("/login", function (req, res) {
         "S256"
     );
 
-    res.redirect(authURL.toString());
+    res.redirect(
+        authURL.toString()
+    );
 });
 
 // ======================================
 // DERIV OAUTH CALLBACK
 // ======================================
 
-app.get("/oauth/callback", async function (req, res) {
+app.get(
+    "/oauth/callback",
+    async function (req, res) {
 
-    const code = req.query.code;
-    const returnedState = req.query.state;
-    const error = req.query.error;
+        const code = req.query.code;
+        const returnedState = req.query.state;
+        const error = req.query.error;
 
-    if (error) {
-        return res.status(400).send(
-            "Deriv login was cancelled or failed: " +
-            error
-        );
-    }
+        if (error) {
 
-    if (!code || !returnedState) {
-        return res.status(400).send(
-            "Missing authorization code or state."
-        );
-    }
+            return res.status(400).send(
+                "Deriv login was cancelled or failed: " +
+                error
+            );
+        }
 
-    const savedRequest =
-        oauthRequests.get(returnedState);
+        if (!code || !returnedState) {
 
-    if (!savedRequest) {
-        return res.status(400).send(
-            "Invalid or expired OAuth state."
-        );
-    }
+            return res.status(400).send(
+                "Missing authorization code or state."
+            );
+        }
 
-    oauthRequests.delete(returnedState);
+        // Read OAuth cookie
+        const cookieHeader =
+            req.headers.cookie || "";
 
-    try {
+        const cookieMatch =
+            cookieHeader.match(
+                /(?:^|;\s*)deriv_oauth=([^;]+)/
+            );
 
-        const tokenResponse =
-            await fetch(
-                "https://auth.deriv.com/oauth2/token",
+        if (!cookieMatch) {
+
+            return res.status(400).send(
+                "OAuth session cookie is missing. Please start the login again."
+            );
+        }
+
+        let oauthData;
+
+        try {
+
+            oauthData =
+                JSON.parse(
+                    Buffer.from(
+                        cookieMatch[1],
+                        "base64url"
+                    ).toString("utf8")
+                );
+
+        } catch (error) {
+
+            return res.status(400).send(
+                "Invalid OAuth session."
+            );
+        }
+
+        // Verify OAuth state
+        if (
+            !oauthData.state ||
+            oauthData.state !== returnedState
+        ) {
+
+            return res.status(400).send(
+                "Invalid or expired OAuth state."
+            );
+        }
+
+        try {
+
+            // ==================================
+            // EXCHANGE CODE FOR ACCESS TOKEN
+            // ==================================
+
+            const tokenResponse =
+                await fetch(
+                    "https://auth.deriv.com/oauth2/token",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/x-www-form-urlencoded"
+                        },
+
+                        body:
+                            new URLSearchParams({
+
+                                grant_type:
+                                    "authorization_code",
+
+                                client_id:
+                                    CLIENT_ID,
+
+                                code:
+                                    code,
+
+                                code_verifier:
+                                    oauthData.codeVerifier,
+
+                                redirect_uri:
+                                    REDIRECT_URI
+                            })
+                    }
+                );
+
+            const tokenData =
+                await tokenResponse.json();
+
+            console.log(
+                "DERIV TOKEN RESPONSE:",
                 {
-                    method: "POST",
+                    success:
+                        tokenResponse.ok,
 
-                    headers: {
-                        "Content-Type":
-                            "application/x-www-form-urlencoded"
-                    },
-
-                    body:
-                        new URLSearchParams({
-                            grant_type:
-                                "authorization_code",
-
-                            client_id:
-                                CLIENT_ID,
-
-                            code:
-                                code,
-
-                            code_verifier:
-                                savedRequest.codeVerifier,
-
-                            redirect_uri:
-                                REDIRECT_URI
-                        })
+                    expires_in:
+                        tokenData.expires_in
                 }
             );
 
-        const tokenData =
-            await tokenResponse.json();
+            if (!tokenResponse.ok) {
 
-        console.log(
-            "DERIV TOKEN RESPONSE:",
-            {
-                success: tokenResponse.ok,
-                expires_in:
-                    tokenData.expires_in
+                return res.status(400).send(
+                    "Deriv token exchange failed."
+                );
             }
-        );
 
-        if (!tokenResponse.ok) {
-            return res.status(400).send(
-                "Deriv token exchange failed."
+            if (!tokenData.access_token) {
+
+                return res.status(400).send(
+                    "No access token was returned."
+                );
+            }
+
+            // ==================================
+            // CLEAR OAUTH COOKIE
+            // ==================================
+
+            res.setHeader(
+                "Set-Cookie",
+                "deriv_oauth=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"
+            );
+
+            // ==================================
+            // OAUTH SUCCESS
+            // ==================================
+
+            res.redirect(
+                "https://tradedollars.onrender.com/?oauth=success"
+            );
+
+        } catch (error) {
+
+            console.error(
+                "OAUTH ERROR:",
+                error
+            );
+
+            res.status(500).send(
+                "Server error during Deriv login."
             );
         }
-
-        if (!tokenData.access_token) {
-            return res.status(400).send(
-                "No access token was returned."
-            );
-        }
-
-        // Do NOT send the access token to the browser.
-        res.send(
-            "<h2>Deriv account connected ✓</h2>" +
-            "<p>OAuth login was successful.</p>" +
-            "<p>You can close this page.</p>"
-        );
-
-    } catch (error) {
-
-        console.error(
-            "OAUTH ERROR:",
-            error
-        );
-
-        res.status(500).send(
-            "Server error during Deriv login."
-        );
     }
-});
+);
 
 // ======================================
 // START SERVER
@@ -218,6 +285,7 @@ const PORT =
 app.listen(
     PORT,
     function () {
+
         console.log(
             "Backend running on port " +
             PORT
