@@ -10,7 +10,7 @@ app.use(express.json());
 // DERIV OAUTH SETTINGS
 // ======================================
 
-const CLIENT_ID = "34qPaViEQZZw84Mc5thoO";
+const CLIENT_ID = process.env.CLIENT_ID;
 
 const REDIRECT_URI =
     "https://tradedollars.onrender.com/oauth/callback";
