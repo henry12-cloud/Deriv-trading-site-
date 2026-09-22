@@ -13,8 +13,7 @@ app.use(express.json());
 const CLIENT_ID = "34qPaViEQZZw84Mc5thoO";
 
 const REDIRECT_URI =
-    "https://deriv-trading-site.onrender.com/oauth/callback";
-
+    "https://tradedollars.onrender.com/oauth/callback";
 // ======================================
 // TEMPORARY PKCE STORAGE
 // ======================================
