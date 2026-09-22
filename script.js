@@ -27,7 +27,6 @@ const socket = new WebSocket(
     "wss://api.derivws.com/trading/v1/options/ws/public?app_id=34qPaViEQZZw84Mc5thoO"
 );
 
-
 // ======================================
 // CONNECTION OPEN
 // ======================================
@@ -467,40 +466,43 @@ loginButton.addEventListener(
     }
 );
 
-
 // ======================================
-// CHECK DERIV LOGIN RESULT
+// CHECK DERIV ACCOUNT STATUS
 // ======================================
 
-const urlParams =
-    new URLSearchParams(
-        window.location.search
-    );
+async function checkAccountStatus() {
 
-const acct1 =
-    urlParams.get("acct1");
+    try {
 
-const token1 =
-    urlParams.get("token1");
+        const response =
+            await fetch("/account-status");
 
+        const data =
+            await response.json();
 
-if (acct1 && token1) {
+        const accountStatus =
+            document.getElementById("accountStatus");
 
-    accountStatus.textContent =
-        "Account: " + acct1;
+        if (data.connected) {
 
-    accountBalance.textContent =
-        "Balance: Loading...";
+            accountStatus.textContent =
+                "Account: Connected to Deriv ✓";
 
-    tradeStatus.textContent =
-        "Deriv account connected ✓";
+        } else {
 
+            accountStatus.textContent =
+                "Account: Not connected";
 
-    socket.send(JSON.stringify({
+        }
 
-        authorize: token1,
+    } catch (error) {
 
-        req_id: 100
+        console.error(
+            "Account status error:",
+            error
+        );
 
-    }));
+    }
 }
+
+checkAccountStatus();
