@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const app = express();
 
 app.use(express.json());
+let userAccessToken = null;
 
 // ======================================
 // DERIV OAUTH SETTINGS
@@ -81,9 +82,9 @@ app.get("/login", function (req, res) {
     );
 
     authURL.searchParams.set(
-        "scope",
-        "trade"
-    );
+    "scope",
+    "trade account_manage"
+);
 
     authURL.searchParams.set(
         "state",
@@ -243,6 +244,9 @@ app.get(
                     "No access token was returned."
                 );
             }
+          userAccessToken = tokenData.access_token;
+
+console.log("DERIV LOGIN SUCCESS");
 
             // ==================================
             // CLEAR OAUTH COOKIE
@@ -274,7 +278,24 @@ app.get(
         }
     }
 );
+// ======================================
+// ACCOUNT STATUS
+// ======================================
 
+app.get("/account-status", function (req, res) {
+
+    if (userAccessToken) {
+
+        return res.json({
+            connected: true
+        });
+
+    }
+
+    return res.json({
+        connected: false
+    });
+});
 // ======================================
 // START SERVER
 // ======================================
