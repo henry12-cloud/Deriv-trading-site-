@@ -1,85 +1,170 @@
-const connectionStatus = document.getElementById("connectionStatus");
-const marketSelect = document.getElementById("marketSelect");
-const selectedMarket = document.getElementById("selectedMarket");
-const livePrice = document.getElementById("livePrice");
-const chartPrice = document.getElementById("chartPrice");
-const marketStatus = document.getElementById("marketStatus");
+<!DOCTYPE html>
+<html lang="en">
 
-const socket = new WebSocket(
-    "wss://api.derivws.com/trading/v1/options/ws/public"
-);
+<head>
+    <meta charset="UTF-8">
 
-socket.onopen = function () {
-    console.log("CONNECTED TO DERIV");
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1.0">
 
-    connectionStatus.textContent = "Connected to Deriv ✓";
-    marketStatus.textContent = "Loading markets...";
+    <title>Deriv Trading</title>
 
-    socket.send(JSON.stringify({
-        active_symbols: "brief",
-        req_id: 1
-    }));
-};
+    <link rel="stylesheet"
+        href="style.css">
+</head>
 
-socket.onmessage = function (event) {
-    console.log("DERIV RESPONSE:", event.data);
+<body>
 
-    const data = JSON.parse(event.data);
+    <h1>Deriv Trading</h1>
 
-    if (data.error) {
-        connectionStatus.textContent =
-            "Deriv error: " + data.error.message;
-        return;
-    }
+    <p>
+        Third-Party Trading Interface
+    </p>
 
-    if (data.msg_type === "active_symbols") {
+    <hr>
 
-        if (!data.active_symbols || data.active_symbols.length === 0) {
-            marketStatus.textContent =
-                "Deriv returned an empty market list";
-            return;
-        }
+    <!-- CONNECTION -->
 
-        marketSelect.innerHTML = "";
+    <h2>Connection</h2>
 
-        data.active_symbols.forEach(function (market) {
+    <p id="connectionStatus">
+        Connecting to Deriv...
+    </p>
 
-            const option = document.createElement("option");
 
-            option.value = market.underlying_symbol;
-            option.textContent = market.display_name;
+    <!-- MARKETS -->
 
-            marketSelect.appendChild(option);
-        });
+    <h2>Available Markets</h2>
 
-        marketStatus.textContent =
-            data.active_symbols.length + " markets loaded";
+    <select id="marketSelect">
+        <option>
+            Loading markets...
+        </option>
+    </select>
 
-        marketSelect.dispatchEvent(new Event("change"));
-    }
-};
+    <p id="marketStatus">
+        Loading markets...
+    </p>
 
-socket.onerror = function () {
-    connectionStatus.textContent =
-        "Connection error";
-};
+    <p id="selectedMarket">
+        Selected market: None
+    </p>
 
-socket.onclose = function () {
-    connectionStatus.textContent =
-        "Disconnected from Deriv";
-};
 
-marketSelect.addEventListener("change", function () {
+    <!-- LIVE PRICE -->
 
-    const symbol = marketSelect.value;
-    const name =
-        marketSelect.options[marketSelect.selectedIndex].text;
+    <h2>Live Price</h2>
 
-    selectedMarket.textContent =
-        "Selected market: " + name;
+    <p id="livePrice">
+        Live Price: --
+    </p>
 
-    socket.send(JSON.stringify({
-        ticks: symbol,
-        subscribe: 1
-    }));
-});
+
+    <!-- LIVE PRICE CHART -->
+
+    <h2>Live Price Chart</h2>
+
+    <p id="chartPrice">
+        Current Price: --
+    </p>
+
+    <p id="marketLiveStatus">
+        Market is live ●
+    </p>
+
+    <p id="lastUpdate">
+        Last update: --
+    </p>
+
+
+    <hr>
+
+
+    <!-- TRADE -->
+
+    <h2>Trade</h2>
+
+    <p id="proposalStatus">
+        Quote: Waiting...
+    </p>
+
+    <p>
+        Ask Price:
+        <span id="askPrice">--</span>
+    </p>
+
+    <p>
+        Potential Payout:
+        <span id="payout">--</span>
+    </p>
+
+
+    <label>
+        Trade Amount
+
+        <input
+            type="number"
+            id="tradeAmount"
+            value="1"
+            min="0.35">
+    </label>
+
+
+    <br><br>
+
+
+    <label>
+        Duration
+
+        <input
+            type="number"
+            id="tradeDuration"
+            value="15"
+            min="15">
+    </label>
+
+
+    <br><br>
+
+
+    <button id="riseButton">
+        RISE
+    </button>
+
+    <button id="fallButton">
+        FALL
+    </button>
+
+
+    <p id="tradeStatus">
+        Waiting
+    </p>
+
+
+    <hr>
+
+
+    <!-- ACCOUNT -->
+
+    <h2>Account</h2>
+
+    <button id="loginButton">
+        LOGIN WITH DERIV
+    </button>
+
+    <p id="accountStatus">
+        Account: Not connected
+    </p>
+
+    <p id="accountBalance">
+        Balance: --
+    </p>
+
+
+    <!-- JAVASCRIPT -->
+
+    <script src="script.js"></script>
+
+</body>
+
+    </html>
