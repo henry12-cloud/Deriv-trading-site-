@@ -1,7 +1,7 @@
-nst connectionStatus = document.getElementById("connectionStatus");
+const connectionStatus = document.getElementById("connectionStatus");
 const marketSelect = document.getElementById("marketSelect");
-const selectedMarket = document.getElementById("selectedMarket");
 const loginButton = document.getElementById("loginButton");
+const selectedMarket = document.getElementById("selectedMarket");
 const accountStatus = document.getElementById("accountStatus");
 const accountBalance = document.getElementById("accountBalance");
 const livePrice = document.getElementById("livePrice");
@@ -15,22 +15,23 @@ const riseButton = document.getElementById("riseButton");
 const fallButton = document.getElementById("fallButton");
 const tradeStatus = document.getElementById("tradeStatus");
 
+const askPrice = document.getElementById("askPrice");
+const payout = document.getElementById("payout");
+
+
+// ======================================
+// DERIV WEBSOCKET CONNECTION
+// ======================================
+
 const socket = new WebSocket(
     "wss://api.derivws.com/trading/v1/options/ws/public?app_id=34qPaViEQZZw84Mc5thoO"
 );
-socket.onerror = function (error) {
-    console.log("DERIV CONNECTION ERROR:", error);
 
-    connectionStatus.textContent =
-        "Deriv connection error";
-};
 
-socket.onclose = function () {
-    console.log("DERIV CONNECTION CLOSED");
+// ======================================
+// CONNECTION OPEN
+// ======================================
 
-    connectionStatus.textContent =
-        "Deriv connection closed";
-};
 socket.onopen = function () {
 
     console.log("CONNECTED TO DERIV");
@@ -42,26 +43,80 @@ socket.onopen = function () {
         "Loading markets...";
 
     socket.send(JSON.stringify({
-    active_symbols: "brief",
-    req_id: 1
-}));
+        active_symbols: "brief",
+        req_id: 1
+    }));
 };
+
+
+// ======================================
+// CONNECTION ERROR
+// ======================================
+
+socket.onerror = function (error) {
+
+    console.log(
+        "DERIV CONNECTION ERROR:",
+        error
+    );
+
+    connectionStatus.textContent =
+        "Deriv connection error";
+};
+
+
+// ======================================
+// CONNECTION CLOSED
+// ======================================
+
+socket.onclose = function () {
+
+    console.log(
+        "DERIV CONNECTION CLOSED"
+    );
+
+    connectionStatus.textContent =
+        "Deriv connection closed";
+};
+
+
+// ======================================
+// DERIV MESSAGES
+// ======================================
 
 socket.onmessage = function (event) {
 
-    console.log("DERIV RESPONSE:", event.data);
+    console.log(
+        "DERIV RESPONSE:",
+        event.data
+    );
 
     const data = JSON.parse(event.data);
 
-if (data.error) {
 
-    console.log("DERIV ERROR:", data.error);
+    // ==================================
+    // DERIV ERROR
+    // ==================================
 
-    tradeStatus.textContent =
-        "Trade error: " + data.error.message;
+    if (data.error) {
 
-    return;
-}
+        console.log(
+            "DERIV ERROR:",
+            data.error
+        );
+
+        tradeStatus.textContent =
+            "Trade error: " +
+            data.error.message;
+
+        return;
+    }
+
+
+    // ==================================
+    // MARKETS
+    // ==================================
+
     if (data.msg_type === "active_symbols") {
 
         console.log(
@@ -82,20 +137,25 @@ if (data.error) {
 
         marketSelect.innerHTML = "";
 
-        data.active_symbols.forEach(function (market) {
+        data.active_symbols.forEach(
+            function (market) {
 
-            const option =
-                document.createElement("option");
+                const option =
+                    document.createElement("option");
 
-            option.value =
-                market.underlying_symbol;
+                option.value =
+                    market.underlying_symbol;
 
-            option.textContent =
-                market.underlying_symbol_name ||
-                market.underlying_symbol;
+                option.textContent =
+                    market.underlying_symbol_name ||
+                    market.display_name ||
+                    market.underlying_symbol;
 
-            marketSelect.appendChild(option);
-        });
+                marketSelect.appendChild(
+                    option
+                );
+            }
+        );
 
         marketStatus.textContent =
             data.active_symbols.length +
@@ -106,13 +166,19 @@ if (data.error) {
         );
     }
 
+
+    // ==================================
+    // LIVE PRICE
+    // ==================================
+
     if (data.msg_type === "tick") {
 
         if (!data.tick) {
             return;
         }
 
-        const price = data.tick.quote;
+        const price =
+            data.tick.quote;
 
         livePrice.textContent =
             "Live Price: " + price;
@@ -124,6 +190,11 @@ if (data.error) {
             "Last update: " +
             new Date().toLocaleTimeString();
     }
+
+
+    // ==================================
+    // CONTRACT INFORMATION
+    // ==================================
 
     if (data.msg_type === "contracts_for") {
 
@@ -143,7 +214,10 @@ if (data.error) {
         const available =
             data.contracts_for.available;
 
-        if (!available || available.length === 0) {
+        if (
+            !available ||
+            available.length === 0
+        ) {
 
             tradeStatus.textContent =
                 "No RISE/FALL contracts available.";
@@ -160,33 +234,41 @@ if (data.error) {
             available.length +
             " contracts available ✓";
     }
-// ===============================
-// ACCOUNT AUTHORIZATION
-// ===============================
 
-if (data.msg_type === "authorize") {
 
-    console.log(
-        "ACCOUNT AUTHORIZED:",
-        data
-    );
+    // ==================================
+    // ACCOUNT AUTHORIZATION
+    // ==================================
 
-    if (data.authorize) {
+    if (data.msg_type === "authorize") {
 
-        accountStatus.textContent =
-            "Account: " +
-            (data.authorize.loginid || "--");
+        console.log(
+            "ACCOUNT AUTHORIZED:",
+            data
+        );
 
-        accountBalance.textContent =
-            "Balance: " +
-            (data.authorize.balance || "--") +
-            " " +
-            (data.authorize.currency || "");
+        if (data.authorize) {
 
-        tradeStatus.textContent =
-            "Account connected ✓";
+            accountStatus.textContent =
+                "Account: " +
+                (data.authorize.loginid || "--");
+
+            accountBalance.textContent =
+                "Balance: " +
+                (data.authorize.balance || "--") +
+                " " +
+                (data.authorize.currency || "");
+
+            tradeStatus.textContent =
+                "Account connected ✓";
+        }
     }
-}
+
+
+    // ==================================
+    // PROPOSAL / QUOTE
+    // ==================================
+
     if (data.msg_type === "proposal") {
 
         console.log(
@@ -202,35 +284,24 @@ if (data.msg_type === "authorize") {
             return;
         }
 
-        const proposal = data.proposal;
+        const proposal =
+            data.proposal;
 
         askPrice.textContent =
-            "Ask Price: " +
-            (proposal.ask_price ?? "--");
+            proposal.ask_price ?? "--";
 
         payout.textContent =
-            "Potential Payout: " +
-            (proposal.payout ?? "--");
+            proposal.payout ?? "--";
 
         tradeStatus.textContent =
             "Quote received ✓";
     }
 };
 
-socket.onerror = function (error) {
 
-    console.log("WEBSOCKET ERROR:", error);
-    connectionStatus.textContent =
-        "Connection error";
-};
-
-socket.onclose = function () {
-
-    console.log("CONNECTION CLOSED");
-
-    connectionStatus.textContent =
-        "Disconnected from Deriv";
-};
+// ======================================
+// MARKET SELECTION
+// ======================================
 
 marketSelect.addEventListener(
     "change",
@@ -239,14 +310,17 @@ marketSelect.addEventListener(
         const symbol =
             marketSelect.value;
 
-        const name =
+        const selectedOption =
             marketSelect.options[
                 marketSelect.selectedIndex
-            ].text;
+            ];
 
-        if (!symbol) {
+        if (!symbol || !selectedOption) {
             return;
         }
+
+        const name =
+            selectedOption.text;
 
         selectedMarket.textContent =
             "Selected market: " + name;
@@ -271,42 +345,56 @@ marketSelect.addEventListener(
         }));
     }
 );
-// ===============================
-// RISE / FALL PROPOSALS
-// ===============================
 
-const tradeAmount = document.getElementById("tradeAmount");
-const tradeDuration = document.getElementById("tradeDuration");
-const riseButton = document.getElementById("riseButton");
-const fallButton = document.getElementById("fallButton");
-const tradeStatus = document.getElementById("tradeStatus");
+
+// ======================================
+// RISE / FALL PROPOSALS
+// ======================================
 
 function requestProposal(contractType) {
 
-    const symbol = marketSelect.value;
-    const amount = Number(tradeAmount.value);
-    const duration = Number(tradeDuration.value);
+    const symbol =
+        marketSelect.value;
+
+    const amount =
+        Number(tradeAmount.value);
+
+    const duration =
+        Number(tradeDuration.value);
+
 
     if (!symbol) {
+
         tradeStatus.textContent =
             "Please select a market first.";
+
         return;
     }
+
 
     if (!amount || amount <= 0) {
+
         tradeStatus.textContent =
             "Please enter a valid trade amount.";
+
         return;
     }
+
 
     if (!duration || duration <= 0) {
+
         tradeStatus.textContent =
             "Please enter a valid duration.";
+
         return;
     }
 
+
     tradeStatus.textContent =
-        "Requesting " + contractType + " quote...";
+        "Requesting " +
+        contractType +
+        " quote...";
+
 
     socket.send(JSON.stringify({
 
@@ -334,44 +422,67 @@ function requestProposal(contractType) {
 }
 
 
-// RISE button
-riseButton.addEventListener("click", function () {
+// ======================================
+// RISE BUTTON
+// ======================================
 
-    requestProposal("CALL");
+riseButton.addEventListener(
+    "click",
+    function () {
 
-});
+        requestProposal("CALL");
 
-fallButton.addEventListener("click", function () {
-
-    requestProposal("PUT");
-
-});
-
-// ===============================
-// DERIV LOGIN
-// ===============================
-
-loginButton.addEventListener("click", function () {
-
-    tradeStatus.textContent =
-        "Opening Deriv login...";
-
-    window.open(
-        "https://oauth.deriv.com/oauth2/authorize?app_id=34qPaViEQZZw84Mc5thoO&l=en&brand=deriv",
-        "_blank"
-    );
-
-});
-// ===============================
-// CHECK DERIV LOGIN RESULT
-// ===============================
-
-const urlParams = new URLSearchParams(
-    window.location.search
+    }
 );
 
-const acct1 = urlParams.get("acct1");
-const token1 = urlParams.get("token1");
+
+// ======================================
+// FALL BUTTON
+// ======================================
+
+fallButton.addEventListener(
+    "click",
+    function () {
+
+        requestProposal("PUT");
+
+    }
+);
+
+
+// ======================================
+// DERIV LOGIN
+// ======================================
+
+loginButton.addEventListener(
+    "click",
+    function () {
+
+        tradeStatus.textContent =
+            "Opening Deriv login...";
+
+        window.location.href =
+            "https://tradedollars.onrender.com/login";
+
+    }
+);
+
+
+// ======================================
+// CHECK DERIV LOGIN RESULT
+// ======================================
+
+const urlParams =
+    new URLSearchParams(
+        window.location.search
+    );
+
+const acct1 =
+    urlParams.get("acct1");
+
+const token1 =
+    urlParams.get("token1");
+
 
 if (acct1 && token1) {
 
@@ -384,8 +495,12 @@ if (acct1 && token1) {
     tradeStatus.textContent =
         "Deriv account connected ✓";
 
+
     socket.send(JSON.stringify({
+
         authorize: token1,
+
         req_id: 100
+
     }));
-                }
+}
