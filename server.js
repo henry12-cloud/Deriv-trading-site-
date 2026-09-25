@@ -338,8 +338,9 @@ app.get("/account-balance", async function (req, res) {
     try {
 
         const response = await fetch(
-            "https://api.deriv.com/trading/v1/options/accounts",
+            "https://api.derivws.com/trading/v1/options/accounts",
             {
+                method: "GET",
                 headers: {
                     "Authorization":
                         "Bearer " + session.accessToken
@@ -358,14 +359,36 @@ app.get("/account-balance", async function (req, res) {
             return res.status(response.status).json({
                 connected: true,
                 balance: null,
-                error: "Unable to retrieve account balance."
+                error:
+                    "Unable to retrieve account balance."
+            });
+        }
+
+        const accounts = Array.isArray(data.data)
+            ? data.data
+            : [data.data];
+
+        const account = accounts.find(
+            function (item) {
+                return item && item.status === "active";
+            }
+        ) || accounts[0];
+
+        if (!account) {
+            return res.json({
+                connected: true,
+                balance: null,
+                error:
+                    "No trading account was found."
             });
         }
 
         return res.json({
             connected: true,
-            balance: data.balance,
-            currency: data.currency
+            balance: account.balance,
+            currency: account.currency,
+            accountId: account.account_id,
+            accountType: account.account_type
         });
 
     } catch (error) {
@@ -378,7 +401,8 @@ app.get("/account-balance", async function (req, res) {
         return res.status(500).json({
             connected: true,
             balance: null,
-            error: "Server error retrieving balance."
+            error:
+                "Server error retrieving balance."
         });
     }
 });
