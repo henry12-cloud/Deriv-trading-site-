@@ -480,19 +480,21 @@ async function checkAccountStatus() {
         const data =
             await response.json();
 
-        const accountStatus =
-            document.getElementById("accountStatus");
-
         if (data.connected) {
 
             accountStatus.textContent =
                 "Account: Connected to Deriv ✓";
+
+            // Get account balance
+            await checkAccountBalance();
 
         } else {
 
             accountStatus.textContent =
                 "Account: Not connected";
 
+            accountBalance.textContent =
+                "Balance: --";
         }
 
     } catch (error) {
@@ -502,7 +504,51 @@ async function checkAccountStatus() {
             error
         );
 
+        accountStatus.textContent =
+            "Account: Not connected";
     }
 }
+
+
+// ======================================
+// CHECK DERIV ACCOUNT BALANCE
+// ======================================
+
+async function checkAccountBalance() {
+
+    try {
+
+        const response =
+            await fetch("/account-balance");
+
+        const data =
+            await response.json();
+
+        if (data.connected && data.balance !== null) {
+
+            accountBalance.textContent =
+                "Balance: " +
+                data.balance +
+                " " +
+                (data.currency || "");
+
+        } else {
+
+            accountBalance.textContent =
+                "Balance: --";
+        }
+
+    } catch (error) {
+
+        console.error(
+            "Account balance error:",
+            error
+        );
+
+        accountBalance.textContent =
+            "Balance: --";
+    }
+}
+
 
 checkAccountStatus();
