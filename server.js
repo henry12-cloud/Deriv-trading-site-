@@ -407,6 +407,130 @@ app.get("/account-balance", async function (req, res) {
     }
 });
 // ======================================
+// GET AUTHENTICATED TRADING WEBSOCKET URL
+// ======================================
+
+app.get("/trading-ws-url", async function (req, res) {
+
+    const session = getSession(req);
+
+    if (!session) {
+        return res.status(401).json({
+            connected: false,
+            error: "Account is not connected."
+        });
+    }
+
+    try {
+
+        // Get the user's Options accounts
+        const accountsResponse = await fetch(
+            "https://api.derivws.com/trading/v1/options/accounts",
+            {
+                method: "GET",
+                headers: {
+                    "Authorization":
+                        "Bearer " + session.accessToken
+                }
+            }
+        );
+
+        const accountsData =
+            await accountsResponse.json();
+
+        if (!accountsResponse.ok) {
+
+            console.error(
+                "ACCOUNTS ERROR:",
+                accountsData
+            );
+
+            return res.status(accountsResponse.status).json({
+                connected: true,
+                error: "Unable to retrieve trading account."
+            });
+        }
+
+        const accounts = Array.isArray(accountsData.data)
+            ? accountsData.data
+            : [accountsData.data];
+
+        const account = accounts.find(
+            function (item) {
+                return item && item.status === "active";
+            }
+        ) || accounts[0];
+
+        if (!account || !account.account_id) {
+
+            return res.status(400).json({
+                connected: true,
+                error: "No active trading account found."
+            });
+        }
+
+        // Request a one-time WebSocket password
+        const otpResponse = await fetch(
+            "https://api.derivws.com/trading/v1/options/accounts/" +
+            encodeURIComponent(account.account_id) +
+            "/otp",
+            {
+                method: "POST",
+                headers: {
+                    "Authorization":
+                        "Bearer " + session.accessToken
+                }
+            }
+        );
+
+        const otpData =
+            await otpResponse.json();
+
+        console.log(
+            "TRADING WEBSOCKET RESPONSE:",
+            {
+                success: otpResponse.ok,
+                accountId: account.account_id,
+                accountType: account.account_type
+            }
+        );
+
+        if (!otpResponse.ok || !otpData.data) {
+
+            console.error(
+                "OTP ERROR:",
+                otpData
+            );
+
+            return res.status(otpResponse.status).json({
+                connected: true,
+                error:
+                    "Unable to create authenticated trading connection."
+            });
+        }
+
+        return res.json({
+            connected: true,
+            accountId: account.account_id,
+            accountType: account.account_type,
+            wsUrl: otpData.data.url
+        });
+
+    } catch (error) {
+
+        console.error(
+            "TRADING WEBSOCKET ERROR:",
+            error
+        );
+
+        return res.status(500).json({
+            connected: true,
+            error:
+                "Server error creating trading connection."
+        });
+    }
+});
+// ======================================
 // START SERVER
 // ======================================
 
