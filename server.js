@@ -321,6 +321,68 @@ app.get("/account-status", function (req, res) {
     });
 });
 // ======================================
+// ACCOUNT BALANCE
+// ======================================
+
+app.get("/account-balance", async function (req, res) {
+
+    const session = getSession(req);
+
+    if (!session) {
+        return res.status(401).json({
+            connected: false,
+            balance: null
+        });
+    }
+
+    try {
+
+        const response = await fetch(
+            "https://api.deriv.com/trading/v1/options/accounts",
+            {
+                headers: {
+                    "Authorization":
+                        "Bearer " + session.accessToken
+                }
+            }
+        );
+
+        const data = await response.json();
+
+        console.log(
+            "DERIV BALANCE RESPONSE:",
+            data
+        );
+
+        if (!response.ok) {
+            return res.status(response.status).json({
+                connected: true,
+                balance: null,
+                error: "Unable to retrieve account balance."
+            });
+        }
+
+        return res.json({
+            connected: true,
+            balance: data.balance,
+            currency: data.currency
+        });
+
+    } catch (error) {
+
+        console.error(
+            "BALANCE ERROR:",
+            error
+        );
+
+        return res.status(500).json({
+            connected: true,
+            balance: null,
+            error: "Server error retrieving balance."
+        });
+    }
+});
+// ======================================
 // START SERVER
 // ======================================
 
