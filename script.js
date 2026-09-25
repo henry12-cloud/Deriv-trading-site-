@@ -15,6 +15,8 @@ const riseButton = document.getElementById("riseButton");
 const fallButton = document.getElementById("fallButton");
 const tradeStatus = document.getElementById("tradeStatus");
 
+const proposalStatus = document.getElementById("proposalStatus");
+
 const askPrice = document.getElementById("askPrice");
 const payout = document.getElementById("payout");
 
@@ -292,8 +294,11 @@ socket.onmessage = function (event) {
         payout.textContent =
             proposal.payout ?? "--";
 
-        tradeStatus.textContent =
-            "Quote received ✓";
+        proposalStatus.textContent =
+    "Quote received ✓";
+
+tradeStatus.textContent =
+    "Quote received ✓";
     }
 };
 
