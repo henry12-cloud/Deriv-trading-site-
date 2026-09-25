@@ -83,7 +83,7 @@ app.get("/login", function (req, res) {
 
     authURL.searchParams.set(
     "scope",
-    "trade account_manage"
+    "trade"
 );
 
     authURL.searchParams.set(
