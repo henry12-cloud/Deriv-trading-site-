@@ -5,7 +5,25 @@ const crypto = require("crypto");
 const app = express();
 
 app.use(express.json());
-let userAccessToken = null;
+// Temporary server-side sessions.
+// For production, use a persistent session store.
+const sessions = new Map();
+
+function getSession(req) {
+    const match = (req.headers.cookie || "")
+        .match(/(?:^|;\s*)tradedollars_session=([^;]+)/);
+
+    if (!match) return null;
+
+    const session = sessions.get(match[1]);
+
+    if (!session || Date.now() >= session.expiresAt) {
+        if (match) sessions.delete(match[1]);
+        return null;
+    }
+
+    return session;
+}
 
 // ======================================
 // DERIV OAUTH SETTINGS
@@ -81,7 +99,7 @@ app.get("/login", function (req, res) {
         REDIRECT_URI
     );
 
-    authURL.searchParams.set(
+authURL.searchParams.set(
     "scope",
     "trade"
 );
@@ -244,7 +262,13 @@ app.get(
                     "No access token was returned."
                 );
             }
-          userAccessToken = tokenData.access_token;
+          const sessionId = crypto.randomBytes(32).toString("hex");
+
+sessions.set(sessionId, {
+    accessToken: tokenData.access_token,
+    expiresAt: Date.now() +
+        (tokenData.expires_in || 3600) * 1000
+});
 
 console.log("DERIV LOGIN SUCCESS");
 
@@ -252,10 +276,10 @@ console.log("DERIV LOGIN SUCCESS");
             // CLEAR OAUTH COOKIE
             // ==================================
 
-            res.setHeader(
-                "Set-Cookie",
-                "deriv_oauth=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"
-            );
+            res.setHeader("Set-Cookie", [
+    "deriv_oauth=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0",
+    `tradedollars_session=${sessionId}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${tokenData.expires_in || 3600}`
+]);
 
             // ==================================
             // OAUTH SUCCESS
@@ -284,12 +308,12 @@ console.log("DERIV LOGIN SUCCESS");
 
 app.get("/account-status", function (req, res) {
 
-    if (userAccessToken) {
+    const session = getSession(req);
 
+    if (session) {
         return res.json({
             connected: true
         });
-
     }
 
     return res.json({
