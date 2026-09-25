@@ -1,559 +1,216 @@
-const connectionStatus = document.getElementById("connectionStatus");
-const marketSelect = document.getElementById("marketSelect");
-const loginButton = document.getElementById("loginButton");
-const selectedMarket = document.getElementById("selectedMarket");
-const accountStatus = document.getElementById("accountStatus");
-const accountBalance = document.getElementById("accountBalance");
-const livePrice = document.getElementById("livePrice");
-const chartPrice = document.getElementById("chartPrice");
-const marketStatus = document.getElementById("marketStatus");
-const lastUpdate = document.getElementById("lastUpdate");
-
-const tradeAmount = document.getElementById("tradeAmount");
-const tradeDuration = document.getElementById("tradeDuration");
-const riseButton = document.getElementById("riseButton");
-const fallButton = document.getElementById("fallButton");
-const tradeStatus = document.getElementById("tradeStatus");
-
-const proposalStatus = document.getElementById("proposalStatus");
-
-const askPrice = document.getElementById("askPrice");
-const payout = document.getElementById("payout");
-
-
-// ======================================
-// DERIV WEBSOCKET CONNECTION
-// ======================================
-
-const socket = new WebSocket(
-    "wss://api.derivws.com/trading/v1/options/ws/public?app_id=34qPaViEQZZw84Mc5thoO"
-);
-
-// ======================================
-// CONNECTION OPEN
-// ======================================
-
-socket.onopen = function () {
-
-    console.log("CONNECTED TO DERIV");
-
-    connectionStatus.textContent =
-        "Connected to Deriv ✓";
-
-    marketStatus.textContent =
-        "Loading markets...";
-
-    socket.send(JSON.stringify({
-        active_symbols: "brief",
-        req_id: 1
-    }));
-};
-
-
-// ======================================
-// CONNECTION ERROR
-// ======================================
-
-socket.onerror = function (error) {
-
-    console.log(
-        "DERIV CONNECTION ERROR:",
-        error
-    );
-
-    connectionStatus.textContent =
-        "Deriv connection error";
-};
-
-
-// ======================================
-// CONNECTION CLOSED
-// ======================================
-
-socket.onclose = function () {
-
-    console.log(
-        "DERIV CONNECTION CLOSED"
-    );
-
-    connectionStatus.textContent =
-        "Deriv connection closed";
-};
-
-
-// ======================================
-// DERIV MESSAGES
-// ======================================
-
-socket.onmessage = function (event) {
-
-    console.log(
-        "DERIV RESPONSE:",
-        event.data
-    );
-
-    const data = JSON.parse(event.data);
-
-
-    // ==================================
-    // DERIV ERROR
-    // ==================================
-
-    if (data.error) {
-
-        console.log(
-            "DERIV ERROR:",
-            data.error
-        );
-
-        tradeStatus.textContent =
-            "Trade error: " +
-            data.error.message;
-
-        return;
-    }
-
-
-    // ==================================
-    // MARKETS
-    // ==================================
-
-    if (data.msg_type === "active_symbols") {
-
-        console.log(
-            "MARKETS RECEIVED:",
-            data.active_symbols
-        );
-
-        if (
-            !data.active_symbols ||
-            data.active_symbols.length === 0
-        ) {
-
-            marketStatus.textContent =
-                "No markets returned";
-
-            return;
-        }
-
-        marketSelect.innerHTML = "";
-
-        data.active_symbols.forEach(
-            function (market) {
-
-                const option =
-                    document.createElement("option");
-
-                option.value =
-                    market.underlying_symbol;
-
-                option.textContent =
-                    market.underlying_symbol_name ||
-                    market.display_name ||
-                    market.underlying_symbol;
-
-                marketSelect.appendChild(
-                    option
-                );
-            }
-        );
-
-        marketStatus.textContent =
-            data.active_symbols.length +
-            " markets loaded";
-
-        marketSelect.dispatchEvent(
-            new Event("change")
-        );
-    }
-
-
-    // ==================================
-    // LIVE PRICE
-    // ==================================
-
-    if (data.msg_type === "tick") {
-
-        if (!data.tick) {
-            return;
-        }
-
-        const price =
-            data.tick.quote;
-
-        livePrice.textContent =
-            "Live Price: " + price;
-
-        chartPrice.textContent =
-            "Current Price: " + price;
-
-        lastUpdate.textContent =
-            "Last update: " +
-            new Date().toLocaleTimeString();
-    }
-
-
-    // ==================================
-    // CONTRACT INFORMATION
-    // ==================================
-
-    if (data.msg_type === "contracts_for") {
-
-        console.log(
-            "CONTRACTS FOR:",
-            data
-        );
-
-        if (!data.contracts_for) {
-
-            tradeStatus.textContent =
-                "No contract information returned.";
-
-            return;
-        }
-
-        const available =
-            data.contracts_for.available;
-
-        if (
-            !available ||
-            available.length === 0
-        ) {
-
-            tradeStatus.textContent =
-                "No RISE/FALL contracts available.";
-
-            return;
-        }
-
-        console.log(
-            "AVAILABLE CONTRACTS:",
-            available
-        );
-
-        tradeStatus.textContent =
-            available.length +
-            " contracts available ✓";
-    }
-
-
-    // ==================================
-    // ACCOUNT AUTHORIZATION
-    // ==================================
-
-    if (data.msg_type === "authorize") {
-
-        console.log(
-            "ACCOUNT AUTHORIZED:",
-            data
-        );
-
-        if (data.authorize) {
-
-            accountStatus.textContent =
-                "Account: " +
-                (data.authorize.loginid || "--");
-
-            accountBalance.textContent =
-                "Balance: " +
-                (data.authorize.balance || "--") +
-                " " +
-                (data.authorize.currency || "");
-
-            tradeStatus.textContent =
-                "Account connected ✓";
-        }
-    }
-
-
-    // ==================================
-    // PROPOSAL / QUOTE
-    // ==================================
-
-    if (data.msg_type === "proposal") {
-
-        console.log(
-            "PROPOSAL RECEIVED:",
-            data
-        );
-
-        if (!data.proposal) {
-
-            tradeStatus.textContent =
-                "No quote received.";
-
-            return;
-        }
-
-        const proposal =
-            data.proposal;
-
-        askPrice.textContent =
-            proposal.ask_price ?? "--";
-
-        payout.textContent =
-            proposal.payout ?? "--";
-
-        proposalStatus.textContent =
-    "Quote received ✓";
-
-tradeStatus.textContent =
-    "Quote received ✓";
-    }
-};
-
-
-// ======================================
-// MARKET SELECTION
-// ======================================
-
-marketSelect.addEventListener(
-    "change",
-    function () {
-
-        const symbol =
-            marketSelect.value;
-
-        const selectedOption =
-            marketSelect.options[
-                marketSelect.selectedIndex
-            ];
-
-        if (!symbol || !selectedOption) {
-            return;
-        }
-
-        const name =
-            selectedOption.text;
-
-        selectedMarket.textContent =
-            "Selected market: " + name;
-
-        livePrice.textContent =
-            "Live Price: Loading...";
-
-        chartPrice.textContent =
-            "Current Price: Loading...";
-
-        console.log(
-            "SUBSCRIBING TO:",
-            symbol
-        );
-
-        socket.send(JSON.stringify({
-
-            ticks: symbol,
-
-            subscribe: 1
-
-        }));
-    }
-);
-
-
-// ======================================
-// RISE / FALL PROPOSALS
-// ======================================
-
-function requestProposal(contractType) {
-
-    const symbol =
-        marketSelect.value;
-
-    const amount =
-        Number(tradeAmount.value);
-
-    const duration =
-        Number(tradeDuration.value);
-
-
-    if (!symbol) {
-
-        tradeStatus.textContent =
-            "Please select a market first.";
-
-        return;
-    }
-
-
-    if (!amount || amount <= 0) {
-
-        tradeStatus.textContent =
-            "Please enter a valid trade amount.";
-
-        return;
-    }
-
-
-    if (!duration || duration <= 0) {
-
-        tradeStatus.textContent =
-            "Please enter a valid duration.";
-
-        return;
-    }
-
-
-    tradeStatus.textContent =
-        "Requesting " +
-        contractType +
-        " quote...";
-
-
-    socket.send(JSON.stringify({
-
-        proposal: 1,
-
-        amount: amount,
-
-        basis: "stake",
-
-        contract_type: contractType,
-
-        currency: "USD",
-
-        duration: duration,
-
-        duration_unit: "s",
-
-        underlying_symbol: symbol,
-
-        subscribe: 1,
-
-        req_id: 10
-
-    }));
+* {
+    box-sizing: border-box;
 }
 
-
-// ======================================
-// RISE BUTTON
-// ======================================
-
-riseButton.addEventListener(
-    "click",
-    function () {
-
-        requestProposal("CALL");
-
-    }
-);
-
-
-// ======================================
-// FALL BUTTON
-// ======================================
-
-fallButton.addEventListener(
-    "click",
-    function () {
-
-        requestProposal("PUT");
-
-    }
-);
-
-
-// ======================================
-// DERIV LOGIN
-// ======================================
-
-loginButton.addEventListener(
-    "click",
-    function () {
-
-        tradeStatus.textContent =
-            "Opening Deriv login...";
-
-        window.location.href =
-            "https://tradedollars.onrender.com/login";
-
-    }
-);
-
-// ======================================
-// CHECK DERIV ACCOUNT STATUS
-// ======================================
-
-async function checkAccountStatus() {
-
-    try {
-
-        const response =
-            await fetch("/account-status");
-
-        const data =
-            await response.json();
-
-        if (data.connected) {
-
-            accountStatus.textContent =
-                "Account: Connected to Deriv ✓";
-
-            // Get account balance
-            await checkAccountBalance();
-
-        } else {
-
-            accountStatus.textContent =
-                "Account: Not connected";
-
-            accountBalance.textContent =
-                "Balance: --";
-        }
-
-    } catch (error) {
-
-        console.error(
-            "Account status error:",
-            error
-        );
-
-        accountStatus.textContent =
-            "Account: Not connected";
-    }
+body {
+    font-family: Arial, sans-serif;
+    background: #f5f5f5;
+    color: #222;
+    margin: 0;
+    padding: 20px;
 }
 
-
-// ======================================
-// CHECK DERIV ACCOUNT BALANCE
-// ======================================
-
-async function checkAccountBalance() {
-
-    try {
-
-        const response =
-            await fetch("/account-balance");
-
-        const data =
-            await response.json();
-
-        if (data.connected && data.balance !== null) {
-
-            accountBalance.textContent =
-                "Balance: " +
-                data.balance +
-                " " +
-                (data.currency || "");
-
-        } else {
-
-            accountBalance.textContent =
-                "Balance: --";
-        }
-
-    } catch (error) {
-
-        console.error(
-            "Account balance error:",
-            error
-        );
-
-        accountBalance.textContent =
-            "Balance: --";
-    }
+h1 {
+    margin-top: 0;
 }
 
+h2 {
+    margin-top: 25px;
+    margin-bottom: 10px;
+}
 
-checkAccountStatus();
+select {
+    display: block;
+    width: 100%;
+    max-width: 500px;
+    height: 45px;
+    padding: 8px 12px;
+    font-size: 16px;
+    background: white;
+    color: #222;
+    border: 2px solid #333;
+    border-radius: 6px;
+    appearance: auto;
+}
+
+option {
+    background: white;
+    color: #222;
+}
+
+input {
+    padding: 8px;
+    font-size: 16px;
+}
+
+button {
+    padding: 12px 20px;
+    font-size: 16px;
+    cursor: pointer;
+    margin-right: 8px;
+}
+
+#connectionStatus {
+    padding: 15px;
+    background: white;
+    border-radius: 8px;
+    border: 1px solid #ddd;
+    font-weight: bold;
+}
+
+#marketStatus {
+    margin-top: 10px;
+}
+
+#selectedMarket {
+    font-weight: bold;
+}
+
+#livePrice,
+#chartPrice,
+#lastUpdate,
+#proposalStatus,
+#tradeStatus,
+#accountStatus,
+#accountBalance {
+    margin-top: 10px;
+}
+
+/* TRADEDOLLARS - FINAL DASHBOARD DESIGN */
+
+:root {
+    color-scheme: dark;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 20px;
+    background: #0b1120;
+    color: #f1f5f9;
+    font-family: Arial, sans-serif;
+    line-height: 1.5;
+}
+
+h1, h2, h3 {
+    color: #f8fafc;
+}
+
+h1 {
+    text-align: center;
+    font-size: 30px;
+    letter-spacing: 1px;
+    margin-bottom: 5px;
+}
+
+h2 {
+    font-size: 20px;
+    margin-top: 0;
+}
+
+section {
+    background: #172338;
+    border: 1px solid #293b54;
+    border-radius: 16px;
+    padding: 20px;
+    margin: 18px auto;
+    max-width: 950px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.2);
+}
+
+input, select {
+    background: #0f172a;
+    color: white;
+    border: 1px solid #475569;
+    border-radius: 9px;
+    padding: 12px;
+    font-size: 16px;
+    max-width: 100%;
+}
+
+button {
+    padding: 13px 22px;
+    border: none;
+    border-radius: 10px;
+    color: white;
+    background: #2563eb;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: .2s;
+}
+
+button:active {
+    transform: scale(.97);
+}
+
+button:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+}
+
+#riseButton {
+    background: #059669;
+}
+
+#fallButton {
+    background: #dc2626;
+}
+
+#riseButton, #fallButton {
+    min-height: 52px;
+    margin: 8px 5px 8px 0;
+}
+
+#connectionStatus,
+#marketStatus,
+#accountStatus,
+#tradeStatus {
+    font-weight: bold;
+}
+
+#livePrice, #chartPrice {
+    font-size: 26px;
+    font-weight: bold;
+    color: #34d399;
+    overflow-wrap: anywhere;
+}
+
+#chart {
+    display: block;
+    width: 100%;
+    max-width: 600px;
+    height: auto;
+    margin: 15px auto;
+    background: #0f172a;
+    border: 1px solid #334155;
+    border-radius: 12px;
+}
+
+@media (max-width: 600px) {
+    body {
+        padding: 12px;
+    }
+
+    section {
+        padding: 15px;
+        margin: 12px auto;
+    }
+
+    h1 {
+        font-size: 25px;
+    }
+
+    input, select {
+        width: 100%;
+        margin: 6px 0;
+    }
+
+    #riseButton, #fallButton {
+        width: calc(50% - 10px);
+        padding: 14px 6px;
+    }
+        }
