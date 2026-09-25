@@ -1,10 +1,13 @@
-// ======================================
-// DERIV TRADING SITE - CLEAN SCRIPT
-// ======================================
+"use strict";
 
-// ======================================
-// ELEMENTS
-// ======================================
+/* =========================================================
+   TRADEDOLLARS - CLEAN WORKING SCRIPT
+   ========================================================= */
+
+
+/* ---------------------------------------------------------
+   HTML ELEMENTS
+--------------------------------------------------------- */
 
 const connectionStatus =
     document.getElementById("connectionStatus");
@@ -33,9 +36,6 @@ const lastUpdate =
 const tradeStatus =
     document.getElementById("tradeStatus");
 
-const proposalStatus =
-    document.getElementById("proposalStatus");
-
 const askPrice =
     document.getElementById("askPrice");
 
@@ -60,460 +60,579 @@ const loginButton =
 const accountStatus =
     document.getElementById("accountStatus");
 
-const accountBalance =
-    document.getElementById("accountBalance");
-
-const chart =
-    document.getElementById("chart");
+const balance =
+    document.getElementById("balance");
 
 
-// ======================================
-// DERIV CONNECTION
-// ======================================
+/* ---------------------------------------------------------
+   VARIABLES
+--------------------------------------------------------- */
 
-const APP_ID =
-    "34qPaViEQZZw84Mc5thoO";
+let socket = null;
 
-const WS_URL =
-    "wss://api.derivws.com/trading/v1/options/ws/public?app_id=" +
-    APP_ID;
+let markets = [];
 
-let socket;
+let selectedSymbol = "";
+
+let requestId = 1;
 
 
-// ======================================
-// CHART
-// ======================================
+/* ---------------------------------------------------------
+   TEXT HELPER
+--------------------------------------------------------- */
 
-let priceHistory = [];
+function setText(element, value) {
 
-function drawChart() {
-
-    if (!chart) {
-        return;
+    if (element) {
+        element.textContent = value;
     }
 
-    const ctx =
-        chart.getContext("2d");
-
-    const width =
-        chart.width;
-
-    const height =
-        chart.height;
-
-    ctx.clearRect(
-        0,
-        0,
-        width,
-        height
-    );
-
-    if (priceHistory.length < 2) {
-        return;
-    }
-
-    const min =
-        Math.min(...priceHistory);
-
-    const max =
-        Math.max(...priceHistory);
-
-    const range =
-        max - min || 1;
-
-    ctx.beginPath();
-
-    priceHistory.forEach(
-        function (price, index) {
-
-            const x =
-                (index /
-                (priceHistory.length - 1)) *
-                width;
-
-            const y =
-                height -
-                ((price - min) / range) *
-                (height - 20) -
-                10;
-
-            if (index === 0) {
-
-                ctx.moveTo(x, y);
-
-            } else {
-
-                ctx.lineTo(x, y);
-
-            }
-        }
-    );
-
-    ctx.stroke();
 }
 
 
-// ======================================
-// CONNECT
-// ======================================
+/* ---------------------------------------------------------
+   REQUEST ID
+--------------------------------------------------------- */
+
+function nextRequestId() {
+
+    requestId++;
+
+    return requestId;
+
+}
+
+
+/* ---------------------------------------------------------
+   CONNECT TO DERIV
+--------------------------------------------------------- */
 
 function connectToDeriv() {
 
-    connectionStatus.textContent =
-        "Connecting to Deriv...";
+    console.log("Starting Deriv connection...");
 
-    socket =
-        new WebSocket(WS_URL);
+    setText(
+        connectionStatus,
+        "Connecting to Deriv..."
+    );
 
-
-    socket.onopen =
-        function () {
-
-            connectionStatus.textContent =
-                "Connected to Deriv ✓";
-
-            loadMarkets();
-
-        };
+    setText(
+        marketStatus,
+        "Loading markets..."
+    );
 
 
-    socket.onmessage =
-        function (event) {
+    /*
+       IMPORTANT:
+       This is the public Deriv Options WebSocket.
+    */
 
-            let data;
-
-            try {
-
-                data =
-                    JSON.parse(event.data);
-
-            } catch (error) {
-
-                return;
-            }
+    const url =
+        "wss://api.derivws.com/trading/v1/options/ws/public";
 
 
-            // ------------------------------
-            // MARKETS
-            // ------------------------------
+    try {
 
-            if (
-                data.msg_type ===
-                "active_symbols"
-            ) {
+        socket =
+            new WebSocket(url);
 
-                const markets =
-                    data.active_symbols || [];
+    } catch (error) {
 
-                marketSelect.innerHTML = "";
+        console.error(
+            "WebSocket error:",
+            error
+        );
 
-                markets.forEach(
-                    function (market) {
+        setText(
+            connectionStatus,
+            "Connection failed"
+        );
 
-                        const option =
-                            document.createElement(
-                                "option"
-                            );
+        return;
 
-                        option.value =
-                            market.symbol;
+    }
 
-                        option.textContent =
-                            market.display_name ||
-                            market.symbol;
 
-                        marketSelect.appendChild(
-                            option
-                        );
+    /* -----------------------------------------------------
+       CONNECTED
+    ----------------------------------------------------- */
 
-                    }
+    socket.onopen = function () {
+
+        console.log(
+            "Connected to Deriv"
+        );
+
+        setText(
+            connectionStatus,
+            "Connected to Deriv ✓"
+        );
+
+        setText(
+            marketStatus,
+            "Loading markets..."
+        );
+
+
+        /*
+           Request active markets.
+        */
+
+        socket.send(
+            JSON.stringify({
+
+                active_symbols:
+                    "brief",
+
+                req_id:
+                    nextRequestId()
+
+            })
+        );
+
+    };
+
+
+    /* -----------------------------------------------------
+       MESSAGES
+    ----------------------------------------------------- */
+
+    socket.onmessage = function (event) {
+
+        let data;
+
+
+        try {
+
+            data =
+                JSON.parse(
+                    event.data
                 );
 
+        } catch (error) {
 
-                marketStatus.textContent =
-                    markets.length +
-                    " markets loaded";
+            console.error(
+                "JSON error:",
+                error
+            );
 
+            return;
 
-                if (markets.length > 0) {
-
-                    // Prefer Volatility 100 (1s)
-                    const preferred =
-                        markets.find(
-                            function (market) {
-
-                                return (
-                                    market.symbol ===
-                                    "1HZ100V"
-                                );
-
-                            }
-                        );
+        }
 
 
-                    if (preferred) {
-
-                        marketSelect.value =
-                            preferred.symbol;
-
-                    }
+        console.log(
+            "DERIV MESSAGE:",
+            data
+        );
 
 
-                    updateSelectedMarket();
+        /* -------------------------------------------------
+           API ERROR
+        ------------------------------------------------- */
 
-                }
+        if (data.error) {
+
+            console.error(
+                "DERIV ERROR:",
+                data.error
+            );
+
+            setText(
+                tradeStatus,
+                data.error.message ||
+                "Deriv error"
+            );
+
+            return;
+
+        }
+
+
+        /* -------------------------------------------------
+           ACTIVE MARKETS
+        ------------------------------------------------- */
+
+        if (
+            data.msg_type ===
+            "active_symbols"
+        ) {
+
+            if (
+                !Array.isArray(
+                    data.active_symbols
+                )
+            ) {
+
+                setText(
+                    marketStatus,
+                    "No markets found"
+                );
 
                 return;
+
             }
 
 
-            // ------------------------------
-            // TICK / LIVE PRICE
-            // ------------------------------
+            markets =
+                data.active_symbols;
 
-            if (
-                data.msg_type ===
-                "tick"
-            ) {
 
-                if (
-                    data.tick &&
-                    data.tick.quote !== undefined
-                ) {
+            console.log(
+                "Markets:",
+                markets.length
+            );
 
-                    const price =
-                        Number(
-                            data.tick.quote
+
+            marketSelect.innerHTML =
+                "";
+
+
+            markets.forEach(
+                function (market) {
+
+                    const symbol =
+                        market.underlying_symbol;
+
+                    const name =
+                        market.underlying_symbol_name ||
+                        symbol;
+
+
+                    if (!symbol) {
+                        return;
+                    }
+
+
+                    const option =
+                        document.createElement(
+                            "option"
                         );
 
-                    livePrice.textContent =
-                        price;
 
-                    chartPrice.textContent =
-                        price;
+                    option.value =
+                        symbol;
 
 
-                    priceHistory.push(
-                        price
+                    option.textContent =
+                        name;
+
+
+                    marketSelect.appendChild(
+                        option
                     );
 
-
-                    if (
-                        priceHistory.length >
-                        50
-                    ) {
-
-                        priceHistory.shift();
-
-                    }
-
-
-                    drawChart();
-
-
-                    if (chartStatus) {
-
-                        chartStatus.textContent =
-                            "Market is live ●";
-
-                    }
-
-
-                    if (lastUpdate) {
-
-                        lastUpdate.textContent =
-                            "Last update: " +
-                            new Date().toLocaleTimeString();
-
-                    }
-
                 }
+            );
 
+
+            if (markets.length === 0) {
+
+                setText(
+                    marketStatus,
+                    "No markets available"
+                );
+
+                return;
+
+            }
+
+
+            /*
+               Prefer Volatility 100 (1s).
+            */
+
+            let selected =
+                markets.find(
+                    function (market) {
+
+                        const name =
+                            (
+                                market.underlying_symbol_name ||
+                                ""
+                            ).toLowerCase();
+
+
+                        return (
+                            name.includes(
+                                "volatility 100"
+                            ) &&
+                            name.includes(
+                                "(1s)"
+                            )
+                        );
+
+                    }
+                );
+
+
+            /*
+               Otherwise use first market.
+            */
+
+            if (!selected) {
+
+                selected =
+                    markets[0];
+
+            }
+
+
+            selectedSymbol =
+                selected.underlying_symbol;
+
+
+            marketSelect.value =
+                selectedSymbol;
+
+
+            setText(
+                selectedMarket,
+                selected.underlying_symbol_name ||
+                selectedSymbol
+            );
+
+
+            setText(
+                marketStatus,
+                markets.length +
+                " markets loaded"
+            );
+
+
+            /*
+               Subscribe to live price.
+            */
+
+            subscribeToMarket(
+                selectedSymbol
+            );
+
+        }
+
+
+        /* -------------------------------------------------
+           LIVE PRICE
+        ------------------------------------------------- */
+
+        if (
+            data.msg_type ===
+            "tick"
+        ) {
+
+            if (!data.tick) {
                 return;
             }
 
 
-            // ------------------------------
-            // CONTRACTS
-            // ------------------------------
+            const price =
+                data.tick.quote;
+
+
+            setText(
+                livePrice,
+                price
+            );
+
+
+            setText(
+                chartPrice,
+                price
+            );
+
+
+            setText(
+                lastUpdate,
+                new Date()
+                    .toLocaleTimeString()
+            );
+
+
+            setText(
+                chartStatus,
+                "Market is live ●"
+            );
+
+        }
+
+
+        /* -------------------------------------------------
+           CONTRACTS
+        ------------------------------------------------- */
+
+        if (
+            data.msg_type ===
+            "contracts_for"
+        ) {
+
+            console.log(
+                "CONTRACTS:",
+                data
+            );
+
 
             if (
-                data.msg_type ===
-                "contracts_for"
+                data.contracts_for &&
+                Array.isArray(
+                    data.contracts_for.available
+                )
             ) {
 
-                const contracts =
-                    data.contracts_for || {};
-
-                const available =
-                    contracts.available || [];
-
-                if (available.length > 0) {
-
-                    tradeStatus.textContent =
-                        available.length +
-                        " contracts available ✓";
-
-                } else {
-
-                    tradeStatus.textContent =
-                        "No contracts available.";
-
-                }
-
-                return;
-            }
+                const count =
+                    data.contracts_for
+                        .available
+                        .length;
 
 
-            // ------------------------------
-            // PROPOSAL / QUOTE
-            // ------------------------------
-
-            if (
-                data.msg_type ===
-                "proposal"
-            ) {
-
-                if (!data.proposal) {
-
-                    tradeStatus.textContent =
-                        "No quote received.";
-
-                    return;
-                }
-
-
-                const proposal =
-                    data.proposal;
-
-
-                if (askPrice) {
-
-                    askPrice.textContent =
-                        proposal.ask_price ??
-                        "--";
-
-                }
-
-
-                if (payout) {
-
-                    payout.textContent =
-                        proposal.payout ??
-                        "--";
-
-                }
-
-
-                if (proposalStatus) {
-
-                    proposalStatus.textContent =
-                        "Quote received ✓";
-
-                }
-
-
-                tradeStatus.textContent =
-                    "Quote received ✓";
-
-                return;
-            }
-
-
-            // ------------------------------
-            // API ERROR
-            // ------------------------------
-
-            if (data.error) {
-
-                tradeStatus.textContent =
-                    data.error.message ||
-                    "Deriv API error.";
-
-                console.log(
-                    "DERIV ERROR:",
-                    data.error
+                setText(
+                    tradeStatus,
+                    count +
+                    " contracts available ✓"
                 );
 
             }
 
-        };
+        }
 
+
+        /* -------------------------------------------------
+           PROPOSAL
+        ------------------------------------------------- */
+
+        if (
+            data.msg_type ===
+            "proposal"
+        ) {
+
+            console.log(
+                "PROPOSAL:",
+                data
+            );
+
+
+            if (!data.proposal) {
+
+                setText(
+                    tradeStatus,
+                    "No quote received"
+                );
+
+                return;
+
+            }
+
+
+            const proposal =
+                data.proposal;
+
+
+            setText(
+                askPrice,
+                proposal.ask_price ??
+                "--"
+            );
+
+
+            setText(
+                payout,
+                proposal.payout ??
+                "--"
+            );
+
+
+            setText(
+                tradeStatus,
+                "Quote received ✓"
+            );
+
+        }
+
+    };
+
+
+    /* -----------------------------------------------------
+       ERROR
+    ----------------------------------------------------- */
 
     socket.onerror =
-        function () {
+        function (error) {
 
-            connectionStatus.textContent =
-                "Connection error";
+            console.error(
+                "Socket error:",
+                error
+            );
+
+
+            setText(
+                connectionStatus,
+                "Connection error"
+            );
 
         };
 
+
+    /* -----------------------------------------------------
+       CLOSED
+    ----------------------------------------------------- */
 
     socket.onclose =
         function () {
 
-            connectionStatus.textContent =
-                "Disconnected from Deriv";
+            console.log(
+                "Socket closed"
+            );
+
+
+            setText(
+                connectionStatus,
+                "Disconnected from Deriv"
+            );
 
         };
 
 }
 
 
-// ======================================
-// LOAD MARKETS
-// ======================================
+/* ---------------------------------------------------------
+   SUBSCRIBE TO MARKET
+--------------------------------------------------------- */
 
-function loadMarkets() {
+function subscribeToMarket(symbol) {
 
-    socket.send(
-        JSON.stringify({
-
-            active_symbols:
-                "brief",
-
-            req_id:
-                1
-
-        })
-    );
-
-}
-
-
-// ======================================
-// SELECT MARKET
-// ======================================
-
-function updateSelectedMarket() {
-
-    const symbol =
-        marketSelect.value;
-
-    if (!symbol) {
-
-        selectedMarket.textContent =
-            "None";
-
+    if (!socket) {
         return;
     }
 
 
-    const selectedOption =
-        marketSelect.options[
-            marketSelect.selectedIndex
-        ];
+    if (
+        socket.readyState !==
+        WebSocket.OPEN
+    ) {
+
+        return;
+
+    }
 
 
-    selectedMarket.textContent =
-        selectedOption.textContent;
+    if (!symbol) {
+        return;
+    }
 
 
-    priceHistory = [];
+    selectedSymbol =
+        symbol;
 
 
-    // Subscribe to live price
+    console.log(
+        "Subscribing:",
+        symbol
+    );
+
+
+    /*
+       Live price.
+    */
+
     socket.send(
         JSON.stringify({
 
@@ -524,94 +643,16 @@ function updateSelectedMarket() {
                 1,
 
             req_id:
-                2
+                nextRequestId()
 
         })
     );
 
-}
 
+    /*
+       Available contracts.
+    */
 
-marketSelect.addEventListener(
-    "change",
-    updateSelectedMarket
-);
-
-
-// ======================================
-// REQUEST PROPOSAL
-// ======================================
-
-function requestProposal(
-    contractType
-) {
-
-    const symbol =
-        marketSelect.value;
-
-    const amount =
-        Number(
-            tradeAmount.value
-        );
-
-    const duration =
-        Number(
-            tradeDuration.value
-        );
-
-
-    if (!symbol) {
-
-        tradeStatus.textContent =
-            "Please select a market first.";
-
-        return;
-    }
-
-
-    if (!amount || amount <= 0) {
-
-        tradeStatus.textContent =
-            "Please enter a valid trade amount.";
-
-        return;
-    }
-
-
-    if (!duration || duration <= 0) {
-
-        tradeStatus.textContent =
-            "Please enter a valid duration.";
-
-        return;
-    }
-
-
-    if (
-        !socket ||
-        socket.readyState !==
-        WebSocket.OPEN
-    ) {
-
-        tradeStatus.textContent =
-            "Not connected to Deriv.";
-
-        return;
-    }
-
-
-    tradeStatus.textContent =
-        "Checking contracts...";
-
-
-    askPrice.textContent =
-        "--";
-
-    payout.textContent =
-        "--";
-
-
-    // First check available contracts
     socket.send(
         JSON.stringify({
 
@@ -619,452 +660,530 @@ function requestProposal(
                 symbol,
 
             req_id:
-                20
+                nextRequestId()
 
         })
     );
 
+}
 
-    // Request quote
-    setTimeout(
+
+/* ---------------------------------------------------------
+   MARKET CHANGE
+--------------------------------------------------------- */
+
+if (marketSelect) {
+
+    marketSelect.addEventListener(
+        "change",
         function () {
 
-            tradeStatus.textContent =
-                "Requesting quote...";
+            const symbol =
+                marketSelect.value;
 
 
-            socket.send(
-                JSON.stringify({
-
-                    proposal:
-                        1,
-
-                    amount:
-                        amount,
-
-                    basis:
-                        "stake",
-
-                    contract_type:
-                        contractType,
-
-                    currency:
-                        "USD",
-
-                    duration:
-                        duration,
-
-                    duration_unit:
-                        "t",
-
-                    underlying_symbol:
-                        symbol,
-
-                    subscribe:
-                        0,
-
-                    req_id:
-                        contractType ===
-                        "CALL"
-                            ? 10
-                            : 11
-
-                })
-            );
-
-        },
-        300
-    );
-
-}
-
-
-// ======================================
-// RISE BUTTON
-// ======================================
-
-riseButton.addEventListener(
-    "click",
-    function () {
-
-        requestProposal(
-            "CALL"
-        );
-
-    }
-);
-
-
-// ======================================
-// FALL BUTTON
-// ======================================
-
-fallButton.addEventListener(
-    "click",
-    function () {
-
-        requestProposal(
-            "PUT"
-        );
-
-    }
-);
-
-
-// ======================================
-// DERIV LOGIN - OAUTH 2.0 + PKCE
-// ======================================
-
-const CLIENT_ID =
-    "34qPaViEQZZw84Mc5thoO";
-
-const REDIRECT_URI =
-    "https://henry12-cloud.github.io/Deriv-trading-site-/";
-
-
-function base64UrlEncode(buffer) {
-
-    return btoa(
-        String.fromCharCode(
-            ...new Uint8Array(buffer)
-        )
-    )
-        .replace(/\+/g, "-")
-        .replace(/\//g, "_")
-        .replace(/=+$/, "");
-
-}
-
-
-function generateCodeVerifier() {
-
-    const characters =
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ" +
-        "abcdefghijklmnopqrstuvwxyz" +
-        "0123456789-._~";
-
-    const random =
-        crypto.getRandomValues(
-            new Uint8Array(64)
-        );
-
-    return Array.from(random)
-        .map(
-            function (value) {
-
-                return characters[
-                    value % characters.length
-                ];
-
+            if (!symbol) {
+                return;
             }
-        )
-        .join("");
-
-}
 
 
-async function generateCodeChallenge(
-    verifier
-) {
+            const market =
+                markets.find(
+                    function (item) {
 
-    const data =
-        new TextEncoder().encode(
-            verifier
-        );
+                        return (
+                            item.underlying_symbol ===
+                            symbol
+                        );
 
-    const hash =
-        await crypto.subtle.digest(
-            "SHA-256",
-            data
-        );
-
-    return base64UrlEncode(hash);
-
-}
-
-
-// ======================================
-// LOGIN BUTTON
-// ======================================
-
-loginButton.addEventListener(
-    "click",
-    async function () {
-
-        try {
-
-            accountStatus.textContent =
-                "Opening Deriv login...";
-
-
-            const codeVerifier =
-                generateCodeVerifier();
-
-
-            const codeChallenge =
-                await generateCodeChallenge(
-                    codeVerifier
+                    }
                 );
 
 
-            const stateArray =
-                crypto.getRandomValues(
-                    new Uint8Array(16)
-                );
+            selectedSymbol =
+                symbol;
 
 
-            const state =
-                Array.from(stateArray)
-                    .map(
-                        function (byte) {
-
-                            return byte
-                                .toString(16)
-                                .padStart(
-                                    2,
-                                    "0"
-                                );
-
-                        }
-                    )
-                    .join("");
-
-
-            sessionStorage.setItem(
-                "pkce_code_verifier",
-                codeVerifier
+            setText(
+                selectedMarket,
+                market?.underlying_symbol_name ||
+                symbol
             );
 
 
-            sessionStorage.setItem(
-                "oauth_state",
-                state
+            setText(
+                livePrice,
+                "--"
             );
 
 
-            const authUrl =
-                new URL(
-                    "https://auth.deriv.com/oauth2/auth"
-                );
-
-
-            authUrl.searchParams.set(
-                "response_type",
-                "code"
+            setText(
+                chartPrice,
+                "--"
             );
 
 
-            authUrl.searchParams.set(
-                "client_id",
-                CLIENT_ID
+            setText(
+                lastUpdate,
+                "--"
             );
 
 
-            authUrl.searchParams.set(
-                "redirect_uri",
-                REDIRECT_URI
+            setText(
+                tradeStatus,
+                "Waiting..."
             );
 
 
-            authUrl.searchParams.set(
-                "scope",
-                "trade"
+            setText(
+                askPrice,
+                "--"
             );
 
 
-            authUrl.searchParams.set(
-                "state",
-                state
+            setText(
+                payout,
+                "--"
             );
 
 
-            authUrl.searchParams.set(
-                "code_challenge",
-                codeChallenge
+            subscribeToMarket(
+                symbol
             );
-
-
-            authUrl.searchParams.set(
-                "code_challenge_method",
-                "S256"
-            );
-
-
-            window.location.href =
-                authUrl.toString();
-
-        } catch (error) {
-
-            console.error(error);
-
-            accountStatus.textContent =
-                "Unable to start Deriv login.";
 
         }
-
-    }
-);
-
-
-// ======================================
-// HANDLE OAUTH CALLBACK
-// ======================================
-
-function checkLoginCallback() {
-
-    const params =
-        new URLSearchParams(
-            window.location.search
-        );
-
-
-    const error =
-        params.get("error");
-
-
-    const code =
-        params.get("code");
-
-
-    const returnedState =
-        params.get("state");
-
-
-    if (error) {
-
-        accountStatus.textContent =
-            "Deriv login was cancelled.";
-
-        return;
-
-    }
-
-
-    if (!code) {
-
-        return;
-
-    }
-
-
-    const savedState =
-        sessionStorage.getItem(
-            "oauth_state"
-        );
-
-
-    if (
-        !returnedState ||
-        returnedState !== savedState
-    ) {
-
-        accountStatus.textContent =
-            "Login verification failed.";
-
-        return;
-
-    }
-
-
-    const codeVerifier =
-        sessionStorage.getItem(
-            "pkce_code_verifier"
-        );
-
-
-    if (!codeVerifier) {
-
-        accountStatus.textContent =
-            "Login session expired.";
-
-        return;
-
-    }
-
-
-    accountStatus.textContent =
-        "Deriv login successful ✓";
-
-
-    sessionStorage.removeItem(
-        "oauth_state"
     );
 
 }
 
 
-// ======================================
-// CHECK LOGIN CALLBACK
-// ======================================
+/* ---------------------------------------------------------
+   PROPOSAL REQUEST
+--------------------------------------------------------- */
 
-checkLoginCallback();
+function requestProposal(
+    contractType
+) {
 
-// ======================================
-// CHECK LOGIN RESULT
-// ======================================
+    if (!socket) {
 
-function checkLogin() {
-
-    const params =
-        new URLSearchParams(
-            window.location.search
+        setText(
+            tradeStatus,
+            "Not connected to Deriv"
         );
 
+        return;
 
-    const code =
-        params.get("code");
-
-
-    const state =
-        params.get("state");
+    }
 
 
     if (
-        code &&
-        state
+        socket.readyState !==
+        WebSocket.OPEN
     ) {
 
-        const savedState =
-            sessionStorage.getItem(
-                "oauth_state"
+        setText(
+            tradeStatus,
+            "Waiting for Deriv connection..."
+        );
+
+        return;
+
+    }
+
+
+    if (!selectedSymbol) {
+
+        setText(
+            tradeStatus,
+            "Please select a market first."
+        );
+
+        return;
+
+    }
+
+
+    const amount =
+        Number(
+            tradeAmount?.value || 1
+        );
+
+
+    const duration =
+        Number(
+            tradeDuration?.value || 15
+        );
+
+
+    if (
+        !amount ||
+        amount <= 0
+    ) {
+
+        setText(
+            tradeStatus,
+            "Please enter a valid trade amount."
+        );
+
+        return;
+
+    }
+
+
+    if (
+        !duration ||
+        duration <= 0
+    ) {
+
+        setText(
+            tradeStatus,
+            "Please enter a valid duration."
+        );
+
+        return;
+
+    }
+
+
+    setText(
+        askPrice,
+        "--"
+    );
+
+
+    setText(
+        payout,
+        "--"
+    );
+
+
+    setText(
+        tradeStatus,
+        "Requesting quote..."
+    );
+
+
+    /*
+       CALL = RISE
+       PUT  = FALL
+    */
+
+    const request = {
+
+        proposal:
+            1,
+
+        amount:
+            amount,
+
+        basis:
+            "stake",
+
+        contract_type:
+            contractType,
+
+        currency:
+            "USD",
+
+        duration:
+            duration,
+
+        duration_unit:
+            "s",
+
+        underlying_symbol:
+            selectedSymbol,
+
+        req_id:
+            nextRequestId()
+
+    };
+
+
+    console.log(
+        "PROPOSAL REQUEST:",
+        request
+    );
+
+
+    socket.send(
+        JSON.stringify(
+            request
+        )
+    );
+
+}
+
+
+/* ---------------------------------------------------------
+   RISE
+--------------------------------------------------------- */
+
+if (riseButton) {
+
+    riseButton.addEventListener(
+        "click",
+        function () {
+
+            requestProposal(
+                "CALL"
             );
+
+        }
+    );
+
+}
+
+
+/* ---------------------------------------------------------
+   FALL
+--------------------------------------------------------- */
+
+if (fallButton) {
+
+    fallButton.addEventListener(
+        "click",
+        function () {
+
+            requestProposal(
+                "PUT"
+            );
+
+        }
+    );
+
+}
+
+
+/* ---------------------------------------------------------
+   LOGIN
+--------------------------------------------------------- */
+
+if (loginButton) {
+
+    loginButton.addEventListener(
+        "click",
+        function () {
+
+            if (
+                typeof window.startDerivLogin ===
+                "function"
+            ) {
+
+                window.startDerivLogin();
+
+            } else {
+
+                setText(
+                    accountStatus,
+                    "Login setup not connected yet"
+                );
+
+            }
+
+        }
+    );
+
+}
+
+
+/* ---------------------------------------------------------
+   ACCOUNT LOGIN
+--------------------------------------------------------- */
+
+async function checkAccountStatus() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/account-status",
+                {
+                    credentials: "include"
+                }
+            );
+
+
+        const data =
+            await response.json();
 
 
         if (
-            state ===
-            savedState
+            data.connected
         ) {
 
-            accountStatus.textContent =
-                "Deriv login successful ✓";
-
-            sessionStorage.removeItem(
-                "oauth_state"
+            setText(
+                accountStatus,
+                "Account: Connected ✓"
             );
 
 
-            window.history.replaceState(
-                {},
-                document.title,
-                window.location.pathname
+            await loadAccountBalance();
+
+
+            return true;
+
+        }
+
+
+        setText(
+            accountStatus,
+            "Account: Not connected"
+        );
+
+
+        setText(
+            balance,
+            "--"
+        );
+
+
+        return false;
+
+    } catch (error) {
+
+        console.error(
+            "ACCOUNT STATUS ERROR:",
+            error
+        );
+
+
+        setText(
+            accountStatus,
+            "Account: Not connected"
+        );
+
+
+        return false;
+
+    }
+
+}
+
+
+/* ---------------------------------------------------------
+   LOAD BALANCE
+--------------------------------------------------------- */
+
+async function loadAccountBalance() {
+
+    try {
+
+        const response =
+            await fetch(
+                "/account-balance",
+                {
+                    credentials: "include"
+                }
+            );
+
+
+        const data =
+            await response.json();
+
+
+        if (
+            !response.ok ||
+            !data.connected
+        ) {
+
+            setText(
+                balance,
+                "--"
+            );
+
+            return;
+
+        }
+
+
+        if (
+            data.balance !== null &&
+            data.balance !== undefined
+        ) {
+
+            setText(
+                balance,
+                data.balance +
+                " " +
+                (data.currency || "")
             );
 
         } else {
 
-            accountStatus.textContent =
-                "Login state verification failed.";
+            setText(
+                balance,
+                "--"
+            );
 
         }
+
+    } catch (error) {
+
+        console.error(
+            "BALANCE ERROR:",
+            error
+        );
+
+
+        setText(
+            balance,
+            "--"
+        );
 
     }
 
 }
 
 
-// ======================================
-// START
-// ======================================
+/* ---------------------------------------------------------
+   LOGIN BUTTON
+--------------------------------------------------------- */
 
-checkLogin();
+if (loginButton) {
 
-connectToDeriv();
+    loginButton.addEventListener(
+        "click",
+        function () {
+
+            window.location.href =
+                "/login";
+
+        }
+    );
+
+}
+
+
+/* ---------------------------------------------------------
+   CHECK OAUTH RESULT
+--------------------------------------------------------- */
+
+async function initializeAccount() {
+
+    const params =
+        new URLSearchParams(
+            window.location.search
+        );
+
+
+    if (
+        params.get("oauth") ===
+        "success"
+    ) {
+
+        setText(
+            accountStatus,
+            "Account: Connected ✓"
+        );
+
+
+        /*
+           Remove ?oauth=success
+           from the address bar.
+        */
+
+        window.history.replaceState(
+            {},
+            document.titl
