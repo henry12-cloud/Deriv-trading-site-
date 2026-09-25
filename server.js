@@ -251,9 +251,14 @@ app.get(
 
             if (!tokenResponse.ok) {
 
-                return res.status(400).send(
-                    "Deriv token exchange failed."
-                );
+    console.error(
+        "DERIV TOKEN EXCHANGE FAILED:",
+        tokenData
+    );
+
+    return res.status(tokenResponse.status).send(
+        "Deriv token exchange failed."
+    );
             }
 
             if (!tokenData.access_token) {
