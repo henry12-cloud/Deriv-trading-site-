@@ -1,123 +1,126 @@
+
 * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
+  box-sizing: border-box;
 }
 
 body {
-    font-family: Arial, sans-serif;
-    background: #f4f6f8;
-    color: #222;
+  margin: 0;
+  background: #0b1220;
+  color: #f1f5f9;
+  font-family: Arial, sans-serif;
 }
 
 header {
-    background: #111827;
-    color: white;
-    padding: 20px;
-    text-align: center;
+  text-align: center;
+  padding: 28px 15px;
+  background: #111c30;
+  border-bottom: 2px solid #16a34a;
 }
 
-header h1 {
-    margin-bottom: 5px;
-}
-
-main {
-    max-width: 600px;
-    margin: 20px auto;
-    padding: 10px;
-}
-
-section {
-    background: white;
-    border-radius: 12px;
-    padding: 20px;
-    margin-bottom: 15px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+h1 {
+  color: #4ade80;
+  margin: 0;
 }
 
 h2 {
-    margin-bottom: 15px;
-    font-size: 20px;
+  font-size: 19px;
 }
 
-.account p {
-    font-size: 18px;
+main {
+  width: min(100% - 24px, 900px);
+  margin: 20px auto;
+  display: grid;
+  gap: 18px;
 }
 
-#balance {
-    font-weight: bold;
+section {
+  background: #18243a;
+  border: 1px solid #334155;
+  border-radius: 14px;
+  padding: 20px;
 }
 
-#symbol {
-    width: 100%;
-    padding: 12px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    font-size: 16px;
+label {
+  display: block;
+  margin: 15px 0 7px;
 }
 
-.price {
-    margin-top: 15px;
-    padding: 20px;
-    background: #eef2ff;
-    border-radius: 8px;
-    text-align: center;
-}
-
-#price {
-    font-size: 28px;
-    font-weight: bold;
-}
-
-#chart {
-    height: 250px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: #111827;
-    color: white;
-    border-radius: 8px;
-}
-
-#amount {
-    width: 100%;
-    padding: 12px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    font-size: 16px;
-    margin-bottom: 15px;
-}
-
-.buttons {
-    display: flex;
-    gap: 10px;
+input, select {
+  width: 100%;
+  padding: 13px;
+  background: #0b1220;
+  color: white;
+  border: 1px solid #64748b;
+  border-radius: 8px;
+  font-size: 16px;
 }
 
 button {
-    flex: 1;
-    padding: 14px;
-    border: none;
-    border-radius: 8px;
-    color: white;
-    font-size: 16px;
-    font-weight: bold;
+  border: 0;
+  border-radius: 8px;
+  padding: 14px;
+  color: white;
+  background: #2563eb;
+  font-weight: bold;
+  cursor: pointer;
 }
 
-#buy {
-    background: #16a34a;
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
-#sell {
-    background: #dc2626;
+#loginButton,
+#buyButton {
+  width: 100%;
+  margin-top: 12px;
 }
 
-button:active {
-    opacity: 0.8;
+#logoutButton {
+  background: #475569;
 }
 
-#openTrade {
-    padding: 15px;
-    background: #f3f4f6;
-    border-radius: 8px;
-    text-align: center;
+.price {
+  font-size: 38px;
+  font-weight: bold;
+  color: #4ade80;
+  margin: 20px 0;
+}
+
+canvas {
+  width: 100%;
+  height: 220px;
+  background: #0b1220;
+  border-radius: 8px;
+}
+
+.trade-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.trade-buttons button {
+  flex: 1;
+}
+
+#riseButton {
+  background: #15803d;
+}
+
+#fallButton {
+  background: #dc2626;
+}
+
+footer {
+  text-align: center;
+  padding: 24px;
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+@media (min-width: 700px) {
+  main {
+    grid-template-columns: 1fr 1fr;
+  }
 }
