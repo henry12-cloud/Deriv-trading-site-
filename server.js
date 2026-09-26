@@ -315,7 +315,7 @@ app.get("/logout", (req, res) => {
 });
 
 // SPA fallback
-app.get("*", (req, res) => {
+app.get("/{*splat}", (req, res) => {
     res.sendFile(path.join(__dirname, "index.html"));
 });
 
