@@ -357,17 +357,16 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   if (loginButton) {
-    loginButton.addEventListener("click", () => {
-      show(
-        accountStatus,
-        "Login requires verified server configuration"
-      );
-    });
-  }
+  loginButton.addEventListener("click", () => {
+    show(accountStatus, "Opening Deriv login...");
+
+    window.location.href =
+      "https://tradedollars.onrender.com/login";
+  });
+}
 
   show(accountStatus, "Account: Not connected");
   show(balance, "--");
 
   connect();
 });
-     
