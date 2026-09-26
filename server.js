@@ -9,8 +9,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const CLIENT_ID = process.env.DERIV_CLIENT_ID;
-const BASE_URL = (process.env.BASE_URL || "")
-  .replace(/\/$/, "");
+const BASE_URL =
+  (process.env.BASE_URL || "").replace(/\/$/, "");
 
 const REDIRECT_URI = BASE_URL + "/callback";
 
@@ -19,24 +19,24 @@ const sessions = new Map();
 app.use(express.json());
 app.use(express.static(__dirname));
 
-function readCookie(req, name) {
-  const cookies = req.headers.cookie || "";
-  const match = cookies.match(
+function getCookie(req, name) {
+  const cookie = req.headers.cookie || "";
+  const match = cookie.match(
     new RegExp("(?:^|;\\s*)" + name + "=([^;]+)")
   );
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-function clearCookie(res, name) {
-  res.clearCookie(name, {
+function cookieOptions(maxAge) {
+  return {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
-    path: "/"
-  });
+    path: "/",
+    maxAge
+  };
 }
 
-// Check server configuration
 app.get("/health", (req, res) => {
   res.json({
     server: "running",
@@ -46,85 +46,79 @@ app.get("/health", (req, res) => {
   });
 });
 
-// Start Deriv OAuth login
 app.get("/login", (req, res) => {
   if (!CLIENT_ID || !BASE_URL) {
     return res.status(500).send(
-      "Missing DERIV_CLIENT_ID or BASE_URL in Render."
+      "Missing OAuth configuration in Render."
     );
   }
 
   const state = crypto.randomBytes(32).toString("hex");
-  const verifier = crypto.randomBytes(48)
-    .toString("base64url");
+  const verifier =
+    crypto.randomBytes(48).toString("base64url");
 
   const challenge = crypto
     .createHash("sha256")
     .update(verifier)
     .digest("base64url");
 
-  const cookieOptions = {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    maxAge: 600000,
-    path: "/"
-  };
+  res.cookie(
+    "oauth_state",
+    state,
+    cookieOptions(600000)
+  );
 
-  res.cookie("oauth_state", state, cookieOptions);
-  res.cookie("pkce_verifier", verifier, cookieOptions);
+  res.cookie(
+    "pkce_verifier",
+    verifier,
+    cookieOptions(600000)
+  );
 
   const params = new URLSearchParams({
     response_type: "code",
     client_id: CLIENT_ID,
     redirect_uri: REDIRECT_URI,
     scope: "trade",
-    state: state,
+    state,
     code_challenge: challenge,
     code_challenge_method: "S256"
   });
 
-  const authUrl =
+  res.redirect(
     "https://auth.deriv.com/oauth2/auth?" +
-    params.toString();
-
-  res.redirect(authUrl);
+    params.toString()
+  );
 });
 
-// Deriv OAuth callback
 app.get("/callback", async (req, res) => {
   const { code, state, error } = req.query;
 
   if (error) {
-    console.error("OAuth provider error:", error);
     return res.status(400).send(
-      "Deriv declined login. Please return to Tradedollars."
+      "Deriv login declined: " +
+      String(error) +
+      '. <a href="/">Return to Tradedollars</a>'
     );
   }
 
-  if (!code || !state) {
-    return res.status(400).send(
-      "No authorization response received. " +
-      "Start login from the Tradedollars homepage."
-    );
-  }
-
-  const savedState = readCookie(req, "oauth_state");
-  const verifier = readCookie(req, "pkce_verifier");
+  const savedState = getCookie(req, "oauth_state");
+  const verifier = getCookie(req, "pkce_verifier");
 
   if (
+    typeof code !== "string" ||
     typeof state !== "string" ||
     !savedState ||
     !verifier ||
     state !== savedState
   ) {
     return res.status(400).send(
-      "Login security check failed. Please try again."
+      "Invalid or expired login session. " +
+      '<a href="/login">Try again</a>'
     );
   }
 
-  clearCookie(res, "oauth_state");
-  clearCookie(res, "pkce_verifier");
+  res.clearCookie("oauth_state", cookieOptions(0));
+  res.clearCookie("pkce_verifier", cookieOptions(0));
 
   try {
     const response = await fetch(
@@ -138,7 +132,7 @@ app.get("/callback", async (req, res) => {
         body: new URLSearchParams({
           grant_type: "authorization_code",
           client_id: CLIENT_ID,
-          code: code,
+          code,
           code_verifier: verifier,
           redirect_uri: REDIRECT_URI
         })
@@ -147,12 +141,13 @@ app.get("/callback", async (req, res) => {
 
     if (!response.ok) {
       console.error(
-        "Deriv token exchange HTTP status:",
+        "Token exchange HTTP status:",
         response.status
       );
+
       return res.status(400).send(
         "Deriv token exchange failed. " +
-        "Check your OAuth application settings."
+        '<a href="/login">Try again</a>'
       );
     }
 
@@ -164,40 +159,42 @@ app.get("/callback", async (req, res) => {
       );
     }
 
-    const sessionId = crypto.randomBytes(32)
-      .toString("hex");
+    const sessionId =
+      crypto.randomBytes(32).toString("hex");
 
-    const expiresIn = Number(data.expires_in) || 3600;
+    const expiresIn = Math.max(
+      1,
+      Number(data.expires_in) || 3600
+    );
 
     sessions.set(sessionId, {
-      token: data.access_token,
+      accessToken: data.access_token,
       expiresAt: Date.now() + expiresIn * 1000
     });
 
-    res.cookie("tradedollars_session", sessionId, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "lax",
-      maxAge: expiresIn * 1000,
-      path: "/"
-    });
+    res.cookie(
+      "tradedollars_session",
+      sessionId,
+      cookieOptions(expiresIn * 1000)
+    );
 
     res.redirect("/?login=success");
 
   } catch (err) {
-    console.error("OAuth request failed:", err.message);
+    console.error("OAuth callback:", err.message);
+
     res.status(500).send(
-      "Unable to complete Deriv login. Try again."
+      "Login could not be completed. " +
+      '<a href="/login">Try again</a>'
     );
   }
 });
 
-// Account status
 app.get("/api/account", async (req, res) => {
-  const id = readCookie(req, "tradedollars_session");
-  const session = id && sessions.get(id);
+  const id = getCookie(req, "tradedollars_session");
+  const session = id ? sessions.get(id) : null;
 
-  if (!session || Date.now() >= session.expiresAt) {
+  if (!session || session.expiresAt <= Date.now()) {
     if (id) sessions.delete(id);
     return res.json({ connected: false });
   }
@@ -207,7 +204,7 @@ app.get("/api/account", async (req, res) => {
       "https://api.derivws.com/trading/v1/options/accounts",
       {
         headers: {
-          Authorization: "Bearer " + session.token
+          Authorization: "Bearer " + session.accessToken
         }
       }
     );
@@ -215,7 +212,7 @@ app.get("/api/account", async (req, res) => {
     if (!response.ok) {
       return res.status(response.status).json({
         connected: false,
-        error: "Unable to retrieve Deriv accounts"
+        error: "Unable to retrieve account details"
       });
     }
 
@@ -223,10 +220,12 @@ app.get("/api/account", async (req, res) => {
 
     res.json({
       connected: true,
-      data: data
+      data
     });
 
   } catch (err) {
+    console.error("Account request:", err.message);
+
     res.status(500).json({
       connected: false,
       error: "Account request failed"
@@ -234,29 +233,30 @@ app.get("/api/account", async (req, res) => {
   }
 });
 
-// Compatibility with older frontend code
-app.get("/account-status", (req, res) => {
-  res.redirect(307, "/api/account");
-});
-
-// Logout
 app.get("/logout", (req, res) => {
-  const id = readCookie(req, "tradedollars_session");
+  const id = getCookie(req, "tradedollars_session");
 
   if (id) sessions.delete(id);
 
-  clearCookie(res, "tradedollars_session");
+  res.clearCookie(
+    "tradedollars_session",
+    cookieOptions(0)
+  );
+
   res.redirect("/");
 });
 
-// Website fallback
 app.get("/{*splat}", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
 app.listen(PORT, () => {
   console.log("Tradedollars running on port " + PORT);
-  console.log("OAuth configured:", Boolean(CLIENT_ID && BASE_URL));
+  console.log(
+    "OAuth configured:",
+    Boolean(CLIENT_ID && BASE_URL)
+  );
   console.log("Redirect URI:", REDIRECT_URI);
 });
+
   
