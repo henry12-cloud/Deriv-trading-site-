@@ -1,372 +1,739 @@
-
 "use strict";
 
-// TRADEDOLLARS - PUBLIC MARKET CONNECTION
-// Trading is disabled until server authentication is verified.
+// =====================================================
+// TRADEDOLLARS - DERIV THIRD-PARTY TRADING INTERFACE
+// =====================================================
 
 document.addEventListener("DOMContentLoaded", () => {
-  const API =
-    "wss://api.derivws.com/trading/v1/options/ws/public";
 
-  const el = id => document.getElementById(id);
+    // -------------------------------------------------
+    // ELEMENTS
+    // -------------------------------------------------
 
-  const connectionStatus = el("connectionStatus");
-  const marketSelect = el("marketSelect");
-  const marketStatus = el("marketStatus");
-  const selectedMarket = el("selectedMarket");
-  const livePrice = el("livePrice");
-  const chartPrice = el("chartPrice");
-  const chartStatus = el("chartStatus");
-  const lastUpdate = el("lastUpdate") || el("chartTime");
-  const tradeStatus = el("tradeStatus");
-  const askPrice = el("askPrice");
-  const payout = el("payout");
-  const amountInput = el("tradeAmount");
-  const durationInput = el("duration");
-  const riseButton = el("riseButton");
-  const fallButton = el("fallButton");
-  const loginButton = el("loginButton");
-  const accountStatus = el("accountStatus");
-  const balance = el("balance");
-  const canvas = el("chart");
+    const el = (id) => document.getElementById(id);
 
-  let socket = null;
-  let markets = [];
-  let currentSymbol = "";
-  let tickSubscription = null;
-  let prices = [];
-  let reconnectTimer = null;
-  let requestId = 10;
+    const connectionStatus = el("connectionStatus");
+    const marketSelect = el("marketSelect");
+    const marketStatus = el("marketStatus");
+    const selectedMarket = el("selectedMarket");
 
-  function show(element, message) {
-    if (element) element.textContent = message;
-  }
+    const livePrice = el("livePrice");
+    const chartPrice = el("chartPrice");
+    const lastUpdate = el("lastUpdate");
 
-  function send(request) {
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      show(connectionStatus, "Deriv is disconnected");
-      return false;
-    }
+    const quoteStatus = el("quoteStatus");
+    const askPrice = el("askPrice");
+    const potentialPayout = el("potentialPayout");
 
-    socket.send(JSON.stringify(request));
-    return true;
-  }
+    const tradeAmount = el("tradeAmount");
+    const duration = el("duration");
 
-  function connect() {
-    clearTimeout(reconnectTimer);
+    const riseButton = el("riseButton");
+    const fallButton = el("fallButton");
 
-    show(connectionStatus, "Connecting to Deriv...");
+    const tradeStatus = el("tradeStatus");
 
-    socket = new WebSocket(API);
+    const loginButton = el("loginButton");
+    const accountStatus = el("accountStatus");
+    const balance = el("balance");
 
-    socket.onopen = () => {
-      show(connectionStatus, "Connected to Deriv ✓");
+    const canvas = el("chart");
 
-      send({
-        active_symbols: "brief",
-        req_id: 1
-      });
-    };
+    // -------------------------------------------------
+    // DERIV PUBLIC MARKET API
+    // -------------------------------------------------
 
-    socket.onmessage = event => {
-      let data;
+    const API =
+        "wss://api.derivws.com/trading/v1/options/ws/public?app_id=34qPaViEQZZw84Mc5thoO";
 
-      try {
-        data = JSON.parse(event.data);
-      } catch (error) {
-        show(connectionStatus, "Invalid server response");
-        return;
-      }
+    let socket = null;
+    let markets = [];
+    let currentSymbol = "";
+    let currentPrice = null;
 
-      if (data.error) {
-        const message = data.error.message || "Unknown API error";
+    // -------------------------------------------------
+    // SAFE TEXT HELPER
+    // -------------------------------------------------
 
-        if (data.echo_req?.proposal) {
-          show(tradeStatus, "Quote error: " + message);
-        } else {
-          show(marketStatus, "API error: " + message);
+    function setText(element, value) {
+        if (element) {
+            element.textContent = value;
         }
-        return;
-      }
-
-      switch (data.msg_type) {
-        case "active_symbols":
-          loadMarkets(data.active_symbols || []);
-          break;
-
-        case "tick":
-          if (
-            data.tick &&
-            data.tick.symbol === currentSymbol
-          ) {
-            updatePrice(data.tick);
-          }
-
-          if (data.subscription?.id) {
-            tickSubscription = data.subscription.id;
-          }
-          break;
-
-        case "history":
-          if (data.history?.prices) {
-            prices = data.history.prices
-              .map(Number)
-              .filter(Number.isFinite)
-              .slice(-100);
-
-            drawChart();
-          }
-          break;
-
-        case "contracts_for":
-          handleContracts(data.contracts_for);
-          break;
-
-        case "proposal":
-          handleProposal(data.proposal);
-          break;
-      }
-    };
-
-    socket.onerror = () => {
-      show(connectionStatus, "Connection error");
-    };
-
-    socket.onclose = () => {
-      show(connectionStatus, "Disconnected - reconnecting...");
-      tickSubscription = null;
-
-      clearTimeout(reconnectTimer);
-      reconnectTimer = setTimeout(connect, 5000);
-    };
-  }
-
-  function loadMarkets(symbols) {
-    markets = symbols.filter(
-      market => market.symbol && market.display_name
-    );
-
-    if (!marketSelect) {
-      show(marketStatus, "Market selector missing");
-      return;
     }
 
-    marketSelect.innerHTML = "";
+    // -------------------------------------------------
+    // STATUS
+    // -------------------------------------------------
 
-    markets.forEach(market => {
-      const option = document.createElement("option");
+    setText(connectionStatus, "Connecting to Deriv...");
+    setText(marketStatus, "Loading markets...");
+    setText(selectedMarket, "Selected market: None");
+    setText(livePrice, "Live Price: --");
+    setText(chartPrice, "Current Price: --");
+    setText(lastUpdate, "Last update: --");
+    setText(quoteStatus, "Quote: Waiting...");
+    setText(askPrice, "Ask Price: --");
+    setText(potentialPayout, "Potential Payout: --");
+    setText(accountStatus, "Account: Not connected");
+    setText(balance, "Balance: --");
 
-      option.value = market.symbol;
-      option.textContent = market.display_name;
+    // -------------------------------------------------
+    // CONNECT
+    // -------------------------------------------------
 
-      marketSelect.appendChild(option);
-    });
+    function connect() {
 
-    show(marketStatus, markets.length + " markets loaded");
+        try {
+            socket = new WebSocket(API);
+        } catch (error) {
+            setText(connectionStatus, "Connection failed");
+            console.error(error);
+            return;
+        }
 
-    if (!markets.length) {
-      show(marketStatus, "No markets returned by Deriv");
-      return;
+        socket.onopen = () => {
+
+            setText(
+                connectionStatus,
+                "Connected to Deriv ✓"
+            );
+
+            socket.send(JSON.stringify({
+                active_symbols: "brief",
+                req_id: 1
+            }));
+        };
+
+        socket.onmessage = (event) => {
+
+            let data;
+
+            try {
+                data = JSON.parse(event.data);
+            } catch (error) {
+                console.error("Invalid Deriv message:", event.data);
+                return;
+            }
+
+            console.log("DERIV:", data);
+
+            // -----------------------------------------
+            // MARKETS
+            // -----------------------------------------
+
+            if (data.msg_type === "active_symbols") {
+
+                markets = data.active_symbols || [];
+
+                setText(
+                    marketStatus,
+                    markets.length + " markets loaded"
+                );
+
+                if (!marketSelect) return;
+
+                marketSelect.innerHTML = "";
+
+                markets.forEach((market) => {
+
+                    const option =
+                        document.createElement("option");
+
+                    option.value = market.symbol;
+
+                    option.textContent =
+                        market.display_name ||
+                        market.symbol;
+
+                    marketSelect.appendChild(option);
+                });
+
+                // Select Volatility 100 (1s) if available
+                const preferred =
+                    markets.find(
+                        (m) =>
+                            m.symbol === "1HZ100V" ||
+                            (m.display_name || "")
+                                .toLowerCase()
+                                .includes("volatility 100 (1s)")
+                    );
+
+                if (preferred) {
+                    marketSelect.value = preferred.symbol;
+                }
+
+                if (marketSelect.value) {
+                    currentSymbol = marketSelect.value;
+                    updateSelectedMarket();
+                    subscribePrice(currentSymbol);
+                }
+
+                return;
+            }
+
+            // -----------------------------------------
+            // LIVE QUOTE
+            // -----------------------------------------
+
+            if (data.msg_type === "tick") {
+
+                const tick = data.tick;
+
+                if (!tick) return;
+
+                currentPrice = Number(tick.quote);
+
+                setText(
+                    livePrice,
+                    "Live Price: " +
+                    currentPrice.toFixed(2)
+                );
+
+                setText(
+                    chartPrice,
+                    "Current Price: " +
+                    currentPrice.toFixed(2)
+                );
+
+                setText(
+                    lastUpdate,
+                    "Last update: " +
+                    new Date().toLocaleTimeString()
+                );
+
+                drawChart(currentPrice);
+
+                return;
+            }
+
+            // -----------------------------------------
+            // CONTRACTS
+            // -----------------------------------------
+
+            if (data.msg_type === "contracts_for") {
+
+                const available =
+                    data.contracts_for?.available ||
+                    [];
+
+                setText(
+                    tradeStatus,
+                    available.length +
+                    " contracts available ✓"
+                );
+
+                return;
+            }
+
+            // -----------------------------------------
+            // PROPOSAL
+            // -----------------------------------------
+
+            if (data.msg_type === "proposal") {
+
+                if (data.proposal) {
+
+                    const proposal =
+                        data.proposal;
+
+                    const ask =
+                        Number(proposal.ask_price);
+
+                    const payout =
+                        Number(proposal.payout);
+
+                    if (!isNaN(ask)) {
+                        setText(
+                            askPrice,
+                            "Ask Price: " +
+                            ask.toFixed(2)
+                        );
+                    }
+
+                    if (!isNaN(payout)) {
+                        setText(
+                            potentialPayout,
+                            "Potential Payout: " +
+                            payout.toFixed(2)
+                        );
+                    }
+
+                    setText(
+                        quoteStatus,
+                        "Quote: Received ✓"
+                    );
+
+                    setText(
+                        tradeStatus,
+                        "Quote received ✓"
+                    );
+                }
+
+                return;
+            }
+
+            // -----------------------------------------
+            // API ERROR
+            // -----------------------------------------
+
+            if (data.error) {
+
+                console.error(
+                    "DERIV ERROR:",
+                    data.error
+                );
+
+                setText(
+                    tradeStatus,
+                    "Error: " +
+                    data.error.message
+                );
+
+                setText(
+                    quoteStatus,
+                    "Quote: Error"
+                );
+
+                return;
+            }
+        };
+
+        socket.onerror = (error) => {
+
+            console.error(
+                "Deriv WebSocket error:",
+                error
+            );
+
+            setText(
+                connectionStatus,
+                "Connection error"
+            );
+        };
+
+        socket.onclose = () => {
+
+            setText(
+                connectionStatus,
+                "Disconnected from Deriv"
+            );
+        };
     }
 
-    const preferred = markets.find(
-      market => market.symbol === "1HZ100V"
-    );
+    // -------------------------------------------------
+    // SUBSCRIBE TO PRICE
+    // -------------------------------------------------
 
-    selectMarket(preferred?.symbol || markets[0].symbol);
-  }
+    function subscribePrice(symbol) {
 
-  function selectMarket(symbol) {
-    if (!symbol) return;
+        if (!socket) return;
 
-    if (tickSubscription) {
-      send({
-        forget: tickSubscription,
-        req_id: ++requestId
-      });
-      tickSubscription = null;
+        if (socket.readyState !== WebSocket.OPEN) {
+            return;
+        }
+
+        socket.send(JSON.stringify({
+            forget_all: "ticks"
+        }));
+
+        socket.send(JSON.stringify({
+            ticks: symbol,
+            subscribe: 1,
+            req_id: 2
+        }));
+
+        currentSymbol = symbol;
     }
 
-    currentSymbol = symbol;
-    prices = [];
+    // -------------------------------------------------
+    // MARKET CHANGE
+    // -------------------------------------------------
 
-    const market = markets.find(
-      item => item.symbol === symbol
-    );
+    if (marketSelect) {
 
-    if (marketSelect) marketSelect.value = symbol;
+        marketSelect.addEventListener(
+            "change",
+            () => {
 
-    show(selectedMarket, market?.display_name || symbol);
-    show(livePrice, "--");
-    show(chartPrice, "--");
-    show(lastUpdate, "--");
-    show(tradeStatus, "Select RISE or FALL for a quote");
-    show(askPrice, "--");
-    show(payout, "--");
+                currentSymbol =
+                    marketSelect.value;
 
-    drawChart();
+                updateSelectedMarket();
 
-    send({
-      ticks: symbol,
-      subscribe: 1,
-      req_id: ++requestId
-    });
+                setText(
+                    livePrice,
+                    "Live Price: --"
+                );
 
-    send({
-      ticks_history: symbol,
-      count: 100,
-      end: "latest",
-      style: "ticks",
-      req_id: ++requestId
-    });
-  }
+                setText(
+                    chartPrice,
+                    "Current Price: --"
+                );
 
-  function updatePrice(tick) {
-    const price = Number(tick.quote);
+                currentPrice = null;
 
-    if (!Number.isFinite(price)) return;
-
-    const formatted = price.toFixed(
-      Number.isInteger(tick.pip_size)
-        ? tick.pip_size
-        : 2
-    );
-
-    show(livePrice, formatted);
-    show(chartPrice, formatted);
-    show(chartStatus, "Market is live ●");
-    show(lastUpdate, new Date().toLocaleTimeString());
-
-    prices.push(price);
-
-    if (prices.length > 100) prices.shift();
-
-    drawChart();
-  }
-
-  function drawChart() {
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const width = canvas.width;
-    const height = canvas.height;
-
-    ctx.clearRect(0, 0, width, height);
-
-    if (prices.length < 2) return;
-
-    const minimum = Math.min(...prices);
-    const maximum = Math.max(...prices);
-    const range = maximum - minimum || 1;
-    const padding = 25;
-
-    ctx.beginPath();
-    ctx.strokeStyle = "#16a34a";
-    ctx.lineWidth = 2;
-
-    prices.forEach((price, index) => {
-      const x = padding +
-        (index / (prices.length - 1)) *
-        (width - padding * 2);
-
-      const y = height - padding -
-        ((price - minimum) / range) *
-        (height - padding * 2);
-
-      if (index === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    });
-
-    ctx.stroke();
-  }
-
-  function requestQuote(direction) {
-    if (!currentSymbol) {
-      show(tradeStatus, "Select a market first");
-      return;
+                subscribePrice(currentSymbol);
+            }
+        );
     }
 
-    const amount = Number(amountInput?.value || 1);
-    const duration = Number(durationInput?.value || 15);
+    function updateSelectedMarket() {
 
-    if (!Number.isFinite(amount) || amount <= 0) {
-      show(tradeStatus, "Enter a valid trade amount");
-      return;
+        if (!marketSelect) return;
+
+        const option =
+            marketSelect.options[
+                marketSelect.selectedIndex
+            ];
+
+        const name =
+            option
+                ? option.textContent
+                : currentSymbol;
+
+        setText(
+            selectedMarket,
+            "Selected market: " + name
+        );
     }
 
-    if (!Number.isInteger(duration) || duration <= 0) {
-      show(tradeStatus, "Enter a valid duration");
-      return;
+    // -------------------------------------------------
+    // REQUEST CONTRACTS
+    // -------------------------------------------------
+
+    function requestContracts() {
+
+        if (!socket) return;
+
+        if (socket.readyState !== WebSocket.OPEN) {
+            setText(
+                tradeStatus,
+                "Waiting for Deriv connection..."
+            );
+            return;
+        }
+
+        if (!currentSymbol) {
+            setText(
+                tradeStatus,
+                "Please select a market"
+            );
+            return;
+        }
+
+        socket.send(JSON.stringify({
+            contracts_for: currentSymbol,
+            req_id: 20
+        }));
+
+        setText(
+            tradeStatus,
+            "Checking available contracts..."
+        );
     }
 
-    show(
-      tradeStatus,
-      "Checking " + direction + " contracts..."
-    );
+    // -------------------------------------------------
+    // REQUEST PROPOSAL
+    // -------------------------------------------------
 
-    send({
-      contracts_for: currentSymbol,
-      req_id: direction === "CALL" ? 20 : 21
-    });
-  }
+    function requestProposal(contractType) {
 
-  function handleContracts(result) {
-    const available = result?.available || [];
+        if (!socket) return;
 
-    show(
-      marketStatus,
-      available.length + " contracts available ✓"
-    );
+        if (socket.readyState !== WebSocket.OPEN) {
+            setText(
+                tradeStatus,
+                "Waiting for Deriv connection..."
+            );
+            return;
+        }
 
-    show(
-      tradeStatus,
-      "Contract information received. " +
-      "Authenticated quote integration is pending."
-    );
-  }
+        if (!currentSymbol) {
+            setText(
+                tradeStatus,
+                "Please select a market"
+            );
+            return;
+        }
 
-  function handleProposal(proposal) {
-    if (!proposal) return;
+        const amount =
+            Number(
+                tradeAmount?.value || 1
+            );
 
-    show(tradeStatus, "Quote received ✓");
-    show(askPrice, proposal.ask_price ?? "--");
-    show(payout, proposal.payout ?? "--");
-  }
+        const durationValue =
+            Number(
+                duration?.value || 15
+            );
 
-  if (marketSelect) {
-    marketSelect.addEventListener("change", event => {
-      selectMarket(event.target.value);
-    });
-  }
+        if (!amount || amount <= 0) {
+            setText(
+                tradeStatus,
+                "Enter a valid trade amount"
+            );
+            return;
+        }
 
-  if (riseButton) {
-    riseButton.addEventListener("click", () => {
-      requestQuote("CALL");
-    });
-  }
+        if (!durationValue || durationValue <= 0) {
+            setText(
+                tradeStatus,
+                "Enter a valid duration"
+            );
+            return;
+        }
 
-  if (fallButton) {
-    fallButton.addEventListener("click", () => {
-      requestQuote("PUT");
-    });
-  }
+        setText(
+            quoteStatus,
+            "Quote: Requesting..."
+        );
 
-  if (loginButton) {
-  loginButton.addEventListener("click", () => {
-    show(accountStatus, "Opening Deriv login...");
+        setText(
+            tradeStatus,
+            "Requesting quote..."
+        );
 
-    window.location.href =
-      "https://tradedollars.onrender.com/login";
-  });
-}
+        socket.send(JSON.stringify({
+            proposal: 1,
+            amount: amount,
+            basis: "stake",
+            contract_type: contractType,
+            currency: "USD",
+            duration: durationValue,
+            duration_unit: "s",
+            symbol: currentSymbol,
+            req_id: 30
+        }));
+    }
 
-  show(accountStatus, "Account: Not connected");
-  show(balance, "--");
+    // -------------------------------------------------
+    // RISE
+    // -------------------------------------------------
 
-  connect();
+    if (riseButton) {
+
+        riseButton.addEventListener(
+            "click",
+            () => {
+
+                requestContracts();
+
+                setTimeout(() => {
+                    requestProposal("CALL");
+                }, 300);
+            }
+        );
+    }
+
+    // -------------------------------------------------
+    // FALL
+    // -------------------------------------------------
+
+    if (fallButton) {
+
+        fallButton.addEventListener(
+            "click",
+            () => {
+
+                requestContracts();
+
+                setTimeout(() => {
+                    requestProposal("PUT");
+                }, 300);
+            }
+        );
+    }
+
+    // -------------------------------------------------
+    // SIMPLE CHART
+    // -------------------------------------------------
+
+    function drawChart(price) {
+
+        if (!canvas) return;
+
+        const ctx =
+            canvas.getContext("2d");
+
+        if (!ctx) return;
+
+        const width =
+            canvas.width;
+
+        const height =
+            canvas.height;
+
+        ctx.clearRect(
+            0,
+            0,
+            width,
+            height
+        );
+
+        ctx.beginPath();
+
+        const center =
+            height / 2;
+
+        const variation =
+            Math.sin(Date.now() / 400) * 20;
+
+        ctx.moveTo(
+            0,
+            center
+        );
+
+        for (
+            let x = 0;
+            x <= width;
+            x += 10
+        ) {
+
+            const y =
+                center +
+                Math.sin(
+                    (x + Date.now() / 10) / 35
+                ) * variation;
+
+            ctx.lineTo(x, y);
+        }
+
+        ctx.stroke();
+    }
+
+    // -------------------------------------------------
+    // LOGIN
+    // -------------------------------------------------
+
+    if (loginButton) {
+
+        loginButton.addEventListener(
+            "click",
+            () => {
+
+                window.location.href =
+                    "/login";
+            }
+        );
+    }
+
+    // -------------------------------------------------
+    // ACCOUNT STATUS
+    // -------------------------------------------------
+
+    async function checkAccount() {
+
+        try {
+
+            const response =
+                await fetch(
+                    "/api/account",
+                    {
+                        credentials: "include"
+                    }
+                );
+
+            const data =
+                await response.json();
+
+            if (!data.connected) {
+
+                setText(
+                    accountStatus,
+                    "Account: Not connected"
+                );
+
+                setText(
+                    balance,
+                    "Balance: --"
+                );
+
+                return;
+            }
+
+            setText(
+                accountStatus,
+                "Account: Connected ✓"
+            );
+
+            if (loginButton) {
+
+                loginButton.textContent =
+                    "LOGGED IN ✓";
+
+                loginButton.disabled =
+                    true;
+            }
+
+            const accountData =
+                data.data;
+
+            let account = null;
+
+            if (
+                accountData &&
+                Array.isArray(accountData.accounts)
+            ) {
+                account =
+                    accountData.accounts[0];
+            }
+
+            if (
+                account &&
+                account.balance !== undefined
+            ) {
+
+                setText(
+                    balance,
+                    "Balance: " +
+                    account.balance +
+                    " " +
+                    (account.currency || "")
+                );
+            }
+
+        } catch (error) {
+
+            console.error(
+                "Account check error:",
+                error
+            );
+        }
+    }
+
+    // -------------------------------------------------
+    // LOGIN SUCCESS MESSAGE
+    // -------------------------------------------------
+
+    const url =
+        new URL(window.location.href);
+
+    if (
+        url.searchParams.get("login") ===
+        "success"
+    ) {
+
+        setText(
+            accountStatus,
+            "Deriv login successful ✓"
+        );
+
+        url.searchParams.delete("login");
+
+        window.history.replaceState(
+            {},
+            document.title,
+            url.pathname +
+            url.search
+        );
+    }
+
+    // -------------------------------------------------
+    // START
+    // -------------------------------------------------
+
+    connect();
+
+    checkAccount();
+
 });
+      
