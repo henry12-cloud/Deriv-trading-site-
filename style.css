@@ -8,59 +8,90 @@ body {
   background: #0b1220;
   color: #f1f5f9;
   font-family: Arial, sans-serif;
+  line-height: 1.5;
 }
 
 header {
   text-align: center;
-  padding: 28px 15px;
-  background: #111c30;
-  border-bottom: 2px solid #16a34a;
+  background: #111d32;
+  padding: 28px 16px;
+  border-bottom: 2px solid #22c55e;
 }
 
 h1 {
-  color: #4ade80;
+  color: #22c55e;
+  font-size: 32px;
   margin: 0;
 }
 
 h2 {
-  font-size: 19px;
+  font-size: 21px;
+  margin-top: 0;
+}
+
+h3 {
+  font-size: 17px;
+}
+
+header p,
+footer,
+.notice {
+  color: #a7b4c8;
+}
+
+#connectionStatus {
+  display: inline-block;
+  margin-top: 12px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  background: #20354a;
+  color: #4ade80;
 }
 
 main {
-  width: min(100% - 24px, 900px);
-  margin: 20px auto;
+  max-width: 1050px;
+  margin: 24px auto;
+  padding: 0 14px;
   display: grid;
+  grid-template-columns:
+    repeat(auto-fit, minmax(min(100%, 360px), 1fr));
   gap: 18px;
 }
 
 section {
-  background: #18243a;
-  border: 1px solid #334155;
-  border-radius: 14px;
-  padding: 20px;
+  background: #172238;
+  padding: 22px;
+  border: 1px solid #29384f;
+  border-radius: 15px;
+  min-width: 0;
 }
 
 label {
   display: block;
   margin: 15px 0 7px;
+  font-weight: bold;
 }
 
-input, select {
+input,
+select {
+  display: block;
   width: 100%;
-  padding: 13px;
-  background: #0b1220;
+  padding: 12px;
+  border: 1px solid #41516a;
+  border-radius: 9px;
+  background: #0d1728;
   color: white;
-  border: 1px solid #64748b;
-  border-radius: 8px;
   font-size: 16px;
 }
 
 button {
-  border: 0;
-  border-radius: 8px;
-  padding: 14px;
+  padding: 13px 17px;
+  margin: 9px 5px 9px 0;
+  background: #16a34a;
   color: white;
-  background: #2563eb;
+  border: 0;
+  border-radius: 9px;
+  font-size: 15px;
   font-weight: bold;
   cursor: pointer;
 }
@@ -70,57 +101,72 @@ button:disabled {
   cursor: not-allowed;
 }
 
-#loginButton,
-#buyButton {
-  width: 100%;
-  margin-top: 12px;
+button[hidden] {
+  display: none;
 }
 
 #logoutButton {
   background: #475569;
 }
 
-.price {
-  font-size: 38px;
-  font-weight: bold;
-  color: #4ade80;
-  margin: 20px 0;
-}
-
-canvas {
-  width: 100%;
-  height: 220px;
-  background: #0b1220;
-  border-radius: 8px;
-}
-
 .trade-buttons {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   margin-top: 20px;
 }
 
 .trade-buttons button {
   flex: 1;
-}
-
-#riseButton {
-  background: #15803d;
+  margin: 0;
 }
 
 #fallButton {
   background: #dc2626;
 }
 
+#buyButton {
+  width: 100%;
+  margin-top: 16px;
+}
+
+.price {
+  font-size: 35px;
+  color: #4ade80;
+  font-weight: bold;
+  overflow-wrap: anywhere;
+}
+
+canvas {
+  width: 100%;
+  height: auto;
+  background: #0c1729;
+  border-radius: 10px;
+  border: 1px solid #334155;
+}
+
+#tradeStatus,
+#quoteStatus,
+#accountStatus {
+  overflow-wrap: anywhere;
+}
+
 footer {
   text-align: center;
-  padding: 24px;
-  color: #94a3b8;
+  padding: 25px 16px;
   font-size: 13px;
 }
 
-@media (min-width: 700px) {
-  main {
-    grid-template-columns: 1fr 1fr;
+@media (max-width: 480px) {
+  header h1 {
+    font-size: 27px;
   }
-}
+
+  section {
+    padding: 17px;
+  }
+
+  .price {
+    font-size: 29px;
+  }
+  }
+  
