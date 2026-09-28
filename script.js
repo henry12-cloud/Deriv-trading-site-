@@ -1,688 +1,485 @@
-
 "use strict";
 
-document.addEventListener("DOMContentLoaded", async () => {
-  const el = id => document.getElementById(id);
+const state = {
+  socket: null,
+  markets: [],
+  selectedSymbol: "",
+  selectedContract: "",
+  quoteRequest: null,
+  priceRequest: null,
+  reqId: 1,
+  prices: [],
+  connected: false
+};
 
-  const status = el("connectionStatus");
-  const markets = el("marketSelect");
-  const marketStatus = el("marketStatus");
-  const chart = el("chart");
-  const ctx = chart.getContext("2d");
+const $ = (id) => document.getElementById(id);
 
-  let publicWs = null;
-  let demoWs = null;
-  let symbol = "";
-  let direction = "";
-  let subscription = null;
-  let prices = [];
-  let requestId = 10;
-  let quoteRequest = 0;
-  let quote = null;
-  let quoteTime = 0;
-  let demoConnected = false;
-  let demoAccountId = "";
-  let buying = false;
-  let buyRequest = 0;
-  let reconnectTimer;
+function nextReqId() {
+  return state.reqId++;
+}
 
-  const nextId = () => ++requestId;
+function setText(id, value) {
+  const el = $(id);
+  if (el) el.textContent = value;
+}
 
-  function send(ws, message) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      return false;
-    }
+function showStatus(message) {
+  setText("connectionStatus", message);
+}
 
-    ws.send(JSON.stringify(message));
-    return true;
+function connectDeriv() {
+  showStatus("Connecting to Deriv...");
+
+  const appId = window.TRADING_CONFIG?.APP_ID;
+
+  if (!appId) {
+    showStatus("Deriv app ID is missing.");
+    return;
   }
 
-  function setBuyEnabled() {
-    el("buyBtn").disabled = !(
-      demoConnected &&
-      quote &&
-      direction &&
-      !buying &&
-      Date.now() - quoteTime < 15000
-    );
-  }
+  const url =
+    "wss://api.derivws.com/trading/v1/options/ws/public?app_id=" +
+    encodeURIComponent(appId);
 
-  function clearQuote() {
-    quote = null;
-    quoteTime = 0;
-    quoteRequest = 0;
-    el("askPrice").textContent = "--";
-    el("payout").textContent = "--";
-    el("quoteStatus").textContent = "Quote: Waiting...";
-    setBuyEnabled();
-  }
+  state.socket = new WebSocket(url);
 
-  async function checkAccount() {
-    try {
-      const response = await fetch("/api/account", {
-        cache: "no-store"
-      });
+  state.socket.onopen = () => {
+    state.connected = true;
+    showStatus("Connected to Deriv ✓");
 
-      const data = await response.json();
+    requestMarkets();
+  };
 
-      if (!response.ok || !data.connected) {
-        el("accountStatus").textContent = "Not logged in";
-        el("balance").textContent = "Balance: --";
-        el("loginBtn").hidden = false;
-        el("logoutBtn").hidden = true;
-        return;
-      }
-
-      el("loginBtn").hidden = true;
-      el("logoutBtn").hidden = false;
-
-      const payload = data.accounts;
-      const list = Array.isArray(payload)
-        ? payload
-        : payload?.data?.accounts ||
-          payload?.accounts ||
-          payload?.data ||
-          [];
-
-      const accounts = Array.isArray(list) ? list : [];
-
-      const demo = accounts.find(a =>
-        a.account_type === "demo" ||
-        a.type === "demo"
-      );
-
-      if (!demo) {
-        el("accountStatus").textContent =
-          "Connected. No demo trading account available.";
-        return;
-      }
-
-      demoAccountId =
-        demo.account_id || demo.id || demo.loginid || "";
-
-      el("accountId").textContent = demoAccountId;
-      el("accountStatus").textContent =
-        "Connected to Deriv ✓ — Demo account";
-
-      const balance =
-        demo.balance?.balance ??
-        demo.balance?.amount ??
-        demo.balance;
-
-      const currency =
-        demo.currency || demo.balance?.currency || "";
-
-      el("balance").textContent = balance == null
-        ? "Balance: Not supplied"
-        : "Balance: " + balance + " " + currency;
-
-      await connectDemo();
-    } catch {
-      el("accountStatus").textContent =
-        "Unable to check account.";
-    }
-  }
-
-  async function connectDemo() {
-    demoConnected = false;
-    clearQuote();
-
-    el("quoteStatus").textContent =
-      "Connecting demo trading account...";
+  state.socket.onmessage = (event) => {
+    let data;
 
     try {
-      const response = await fetch("/api/demo-connection", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        credentials: "same-origin",
-        body: "{}"
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.error || "Demo connection failed."
-        );
-      }
-
-      if (
-        data.accountType !== "demo" ||
-        data.accountId !== demoAccountId
-      ) {
-        throw new Error("Demo account mismatch.");
-      }
-
-      const url = new URL(data.wsUrl);
-
-      if (
-        url.protocol !== "wss:" ||
-        url.hostname !== "api.derivws.com" ||
-        url.pathname !== "/trading/v1/options/ws/demo"
-      ) {
-        throw new Error("Invalid demo trading endpoint.");
-      }
-
-      if (demoWs) demoWs.close();
-
-      const socket = new WebSocket(data.wsUrl);
-      demoWs = socket;
-
-      socket.onopen = () => {
-        if (demoWs !== socket) return;
-
-        demoConnected = true;
-
-        el("quoteStatus").textContent =
-          "Demo account ready. Select RISE or FALL.";
-
-        if (direction && symbol) requestQuote();
-      };
-
-      socket.onmessage = event => {
-        if (demoWs !== socket) return;
-
-        let data;
-
-        try {
-          data = JSON.parse(event.data);
-        } catch {
-          return;
-        }
-
-        if (data.error) {
-          const message =
-            data.error.message || "Deriv trading error.";
-
-          if (data.req_id === buyRequest) {
-            buying = false;
-            buyRequest = 0;
-            clearQuote();
-            el("quoteStatus").textContent =
-              "Purchase failed: " + message;
-          } else if (data.req_id === quoteRequest) {
-            clearQuote();
-            el("quoteStatus").textContent = message;
-          }
-
-          setBuyEnabled();
-          return;
-        }
-
-        if (
-          data.msg_type === "proposal" &&
-          data.req_id === quoteRequest
-        ) {
-          const proposal = data.proposal || {};
-
-          if (
-            !proposal.id ||
-            !Number.isFinite(Number(proposal.ask_price))
-          ) {
-            clearQuote();
-            el("quoteStatus").textContent =
-              "Valid quote unavailable.";
-            return;
-          }
-
-          quote = {
-            id: proposal.id,
-            ask: Number(proposal.ask_price),
-            symbol,
-            direction,
-            amount: Number(el("amount").value),
-            duration: Number(el("duration").value)
-          };
-
-          quoteTime = Date.now();
-
-          el("askPrice").textContent =
-            String(proposal.ask_price);
-
-          el("payout").textContent =
-            String(proposal.payout ?? "--");
-
-          el("quoteStatus").textContent =
-            "Demo quote received ✓";
-
-          setBuyEnabled();
-        }
-
-        if (
-          data.msg_type === "buy" &&
-          data.req_id === buyRequest
-        ) {
-          buying = false;
-          buyRequest = 0;
-
-          const purchase = data.buy || {};
-          clearQuote();
-
-          if (purchase.contract_id) {
-            el("quoteStatus").textContent =
-              "DEMO PURCHASE SUCCESSFUL ✓ Contract: " +
-              purchase.contract_id;
-            checkBalance();
-          } else {
-            el("quoteStatus").textContent =
-              "Purchase response received. Verify in Deriv.";
-          }
-        }
-      };
-
-      socket.onerror = () => {
-        if (demoWs !== socket) return;
-
-        demoConnected = false;
-        clearQuote();
-        el("quoteStatus").textContent =
-          "Demo trading connection error.";
-      };
-
-      socket.onclose = () => {
-        if (demoWs !== socket) return;
-
-        demoConnected = false;
-        clearQuote();
-
-        el("quoteStatus").textContent =
-          "Demo connection closed. Refresh to reconnect.";
-      };
+      data = JSON.parse(event.data);
     } catch (error) {
-      el("quoteStatus").textContent = error.message;
-    }
-  }
-
-  async function checkBalance() {
-    try {
-      const response = await fetch("/api/account", {
-        cache: "no-store"
-      });
-
-      if (!response.ok) return;
-
-      const data = await response.json();
-      const payload = data.accounts;
-
-      const list = Array.isArray(payload)
-        ? payload
-        : payload?.data?.accounts ||
-          payload?.accounts ||
-          payload?.data ||
-          [];
-
-      if (!Array.isArray(list)) return;
-
-      const account = list.find(a =>
-        (a.account_id || a.id || a.loginid) ===
-        demoAccountId
-      );
-
-      if (!account) return;
-
-      const balance =
-        account.balance?.balance ??
-        account.balance?.amount ??
-        account.balance;
-
-      if (balance != null) {
-        el("balance").textContent =
-          "Balance: " + balance + " " +
-          (account.currency ||
-            account.balance?.currency || "");
-      }
-    } catch {
-      // Keep the last displayed balance.
-    }
-  }
-
-  function requestQuote() {
-    clearQuote();
-
-    if (!direction || !symbol) return;
-
-    const amount = Number(el("amount").value);
-    const duration = Number(el("duration").value);
-
-    if (
-      !Number.isFinite(amount) ||
-      amount < 0.35 ||
-      !Number.isInteger(duration) ||
-      duration < 1 ||
-      duration > 10
-    ) {
-      el("quoteStatus").textContent =
-        "Enter a valid amount and 1–10 ticks.";
+      console.error("Invalid Deriv message:", error);
       return;
     }
 
-    if (!demoConnected) {
-      el("quoteStatus").textContent =
-        "Waiting for demo trading connection...";
-      return;
-    }
-
-    quoteRequest = nextId();
-
-    const sent = send(demoWs, {
-      proposal: 1,
-      amount,
-      basis: "stake",
-      contract_type: direction,
-      currency: "USD",
-      duration,
-      duration_unit: "t",
-      underlying_symbol: symbol,
-      req_id: quoteRequest
-    });
-
-    el("quoteStatus").textContent = sent
-      ? "Requesting demo quote..."
-      : "Demo connection unavailable.";
-  }
-
-  function drawChart() {
-    const w = chart.width;
-    const h = chart.height;
-
-    ctx.fillStyle = "#0b192a";
-    ctx.fillRect(0, 0, w, h);
-
-    if (prices.length < 2) return;
-
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    const range = max - min || 1;
-
-    ctx.beginPath();
-    ctx.strokeStyle = "#20df9b";
-    ctx.lineWidth = 2;
-
-    prices.forEach((price, i) => {
-      const x = i * w / (prices.length - 1);
-      const y = h - 15 -
-        ((price - min) / range) * (h - 30);
-
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-
-    ctx.stroke();
-  }
-
-  function selectSymbol(value) {
-    if (subscription) {
-      send(publicWs, { forget: subscription });
-      subscription = null;
-    }
-
-    symbol = value;
-    prices = [];
-    drawChart();
-    clearQuote();
-
-    el("selectedMarket").textContent =
-      markets.selectedOptions[0]?.textContent || "--";
-
-    el("livePrice").textContent = "--";
-    el("priceStatus").textContent =
-      "Waiting for prices...";
-
-    if (!symbol) return;
-
-    send(publicWs, {
-      ticks: symbol,
-      subscribe: 1,
-      req_id: nextId()
-    });
-
-    if (direction) requestQuote();
-  }
-
-  function connectPublic(appId) {
-    clearTimeout(reconnectTimer);
-
-    status.textContent = "Connecting to Deriv...";
-
-    const endpoint =
-      "wss://api.derivws.com/trading/v1/options/ws/public";
-
-    const url = appId
-      ? endpoint + "?app_id=" + encodeURIComponent(appId)
-      : endpoint;
-
-    const socket = new WebSocket(url);
-    publicWs = socket;
-
-    socket.onopen = () => {
-      if (publicWs !== socket) return;
-
-      status.textContent = "Connected to Deriv ✓";
-
-      send(socket, {
-        active_symbols: "brief",
-        req_id: 1
-      });
-    };
-
-    socket.onmessage = event => {
-      if (publicWs !== socket) return;
-
-      let data;
-
-      try {
-        data = JSON.parse(event.data);
-      } catch {
-        return;
-      }
-
-      if (data.error) {
-        if (data.req_id === 1) {
-          marketStatus.textContent = data.error.message;
-        } else {
-          el("priceStatus").textContent =
-            data.error.message;
-        }
-        return;
-      }
-
-      if (data.msg_type === "active_symbols") {
-        const list = (data.active_symbols || []).filter(
-          item => item.symbol || item.underlying_symbol
-        );
-
-        markets.innerHTML = "";
-
-        list.forEach(item => {
-          const option = document.createElement("option");
-
-          option.value =
-            item.symbol || item.underlying_symbol;
-
-          option.textContent =
-            item.display_name ||
-            item.display_name_short ||
-            option.value;
-
-          markets.appendChild(option);
-        });
-
-        marketStatus.textContent =
-          list.length + " markets loaded";
-
-        if (list.length) {
-          const preferred = list.find(item =>
-            (item.symbol || item.underlying_symbol) ===
-            "1HZ100V"
-          );
-
-          markets.value = preferred
-            ? preferred.symbol ||
-              preferred.underlying_symbol
-            : markets.options[0].value;
-
-          selectSymbol(markets.value);
-        }
-      }
-
-      if (data.msg_type === "tick" && data.tick) {
-        if (data.tick.symbol !== symbol) return;
-
-        if (data.subscription?.id) {
-          subscription = data.subscription.id;
-        }
-
-        const price = Number(data.tick.quote);
-
-        if (!Number.isFinite(price)) return;
-
-        el("livePrice").textContent =
-          String(data.tick.quote);
-
-        el("priceStatus").textContent =
-          "Market is live ●";
-
-        prices.push(price);
-
-        if (prices.length > 80) prices.shift();
-
-        drawChart();
-      }
-    };
-
-    socket.onerror = () => {
-      if (publicWs === socket) {
-        status.textContent = "Connection error";
-      }
-    };
-
-    socket.onclose = () => {
-      if (publicWs !== socket) return;
-
-      status.textContent = "Reconnecting...";
-      subscription = null;
-      clearQuote();
-
-      reconnectTimer = setTimeout(
-        () => connectPublic(appId),
-        5000
-      );
-    };
-  }
-
-  markets.onchange = () => {
-    selectSymbol(markets.value);
+    handleMessage(data);
   };
 
-  function choose(type) {
-    direction = type;
+  state.socket.onerror = () => {
+    state.connected = false;
+    showStatus("Unable to connect to Deriv.");
+  };
 
-    el("riseBtn").classList.toggle(
-      "selected", type === "CALL"
-    );
+  state.socket.onclose = () => {
+    state.connected = false;
+    showStatus("Disconnected from Deriv.");
+  };
+}
 
-    el("fallBtn").classList.toggle(
-      "selected", type === "PUT"
-    );
-
-    el("directionStatus").textContent =
-      type === "CALL" ? "RISE selected" : "FALL selected";
-
-    requestQuote();
+function send(data) {
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
+    return false;
   }
 
-  el("riseBtn").onclick = () => choose("CALL");
-  el("fallBtn").onclick = () => choose("PUT");
+  state.socket.send(JSON.stringify(data));
+  return true;
+}
 
-  el("amount").onchange = requestQuote;
-  el("duration").onchange = requestQuote;
+function requestMarkets() {
+  setText("marketsStatus", "Loading markets...");
 
-  el("buyBtn").onclick = () => {
-    if (
-      buying ||
-      !demoConnected ||
-      !quote ||
-      Date.now() - quoteTime >= 15000
-    ) {
-      clearQuote();
-      el("quoteStatus").textContent =
-        "Quote expired. Request a new quote.";
-      return;
+  send({
+    active_symbols: "brief",
+    req_id: nextReqId()
+  });
+}
+
+function handleMessage(data) {
+  if (data.error) {
+    console.error("Deriv error:", data.error);
+
+    if (data.req_id === state.quoteRequest) {
+      setText(
+        "quoteStatus",
+        data.error.message || "Unable to get quote."
+      );
     }
 
-    if (
-      quote.symbol !== symbol ||
-      quote.direction !== direction ||
-      quote.amount !== Number(el("amount").value) ||
-      quote.duration !== Number(el("duration").value)
-    ) {
-      requestQuote();
-      return;
+    return;
+  }
+
+  if (data.msg_type === "active_symbols") {
+    handleMarkets(data);
+    return;
+  }
+
+  if (data.msg_type === "tick") {
+    handleTick(data);
+    return;
+  }
+
+  /*
+   * DEMO QUOTE
+   */
+  if (
+    data.msg_type === "proposal" &&
+    data.req_id === state.quoteRequest
+  ) {
+    handleProposal(data);
+    return;
+  }
+
+  if (data.msg_type === "history") {
+    handleHistory(data);
+    return;
+  }
+}
+
+function handleMarkets(data) {
+  if (!Array.isArray(data.active_symbols)) {
+    setText("marketsStatus", "No markets returned by Deriv.");
+    return;
+  }
+
+  state.markets = data.active_symbols.filter((market) => {
+    return market && market.symbol && market.display_name;
+  });
+
+  setText(
+    "marketsStatus",
+    state.markets.length + " markets loaded"
+  );
+
+  populateMarketSelect();
+
+  if (state.markets.length > 0) {
+    const preferred =
+      state.markets.find(
+        (market) =>
+          market.symbol === "1HZ100V"
+      ) || state.markets[0];
+
+    state.selectedSymbol = preferred.symbol;
+
+    const select = $("marketSelect");
+
+    if (select) {
+      select.value = preferred.symbol;
     }
 
-    const confirmed = window.confirm(
-      "DEMO TRADE ONLY\n\n" +
-      "Account: " + demoAccountId + "\n" +
-      "Market: " + symbol + "\n" +
-      "Direction: " + direction + "\n" +
-      "Maximum purchase price: $" +
-      quote.ask.toFixed(2) + "\n\n" +
-      "Purchase this demo contract?"
+    setText(
+      "selectedMarket",
+      preferred.display_name || preferred.symbol
     );
 
-    if (!confirmed) return;
+    subscribeToMarket(preferred.symbol);
+  }
+}
 
-    buying = true;
-    setBuyEnabled();
+function populateMarketSelect() {
+  const select = $("marketSelect");
 
-    buyRequest = nextId();
+  if (!select) return;
 
-    const sent = send(demoWs, {
-      buy: quote.id,
-      price: quote.ask,
-      req_id: buyRequest
-    });
+  select.innerHTML = "";
 
-    if (sent) {
-      el("quoteStatus").textContent =
-        "Submitting demo purchase...";
+  state.markets.forEach((market) => {
+    const option = document.createElement("option");
+
+    option.value = market.symbol;
+    option.textContent =
+      market.display_name + " (" + market.symbol + ")";
+
+    select.appendChild(option);
+  });
+
+  select.addEventListener("change", () => {
+    const symbol = select.value;
+
+    const market = state.markets.find(
+      (item) => item.symbol === symbol
+    );
+
+    if (!market) return;
+
+    state.selectedSymbol = symbol;
+
+    setText(
+      "selectedMarket",
+      market.display_name || symbol
+    );
+
+    state.prices = [];
+
+    subscribeToMarket(symbol);
+  });
+}
+
+function subscribeToMarket(symbol) {
+  if (!symbol) return;
+
+  send({
+    forget_all: "ticks",
+    req_id: nextReqId()
+  });
+
+  send({
+    ticks: symbol,
+    subscribe: 1,
+    req_id: nextReqId()
+  });
+
+  requestHistory(symbol);
+}
+
+function requestHistory(symbol) {
+  send({
+    ticks_history: symbol,
+    count: 50,
+    end: "latest",
+    start: 1,
+    style: "ticks",
+    req_id: nextReqId()
+  });
+}
+
+function handleHistory(data) {
+  if (!data.history) return;
+
+  const prices = data.history.prices;
+
+  if (!Array.isArray(prices)) return;
+
+  state.prices = prices.map(Number).filter(Number.isFinite);
+
+  updateChart();
+}
+
+function handleTick(data) {
+  if (!data.tick) return;
+
+  const tick = data.tick;
+
+  if (tick.symbol !== state.selectedSymbol) {
+    return;
+  }
+
+  const price = Number(tick.quote);
+
+  if (!Number.isFinite(price)) return;
+
+  setText("livePrice", price);
+
+  state.prices.push(price);
+
+  if (state.prices.length > 50) {
+    state.prices.shift();
+  }
+
+  updateChart();
+}
+
+function updateChart() {
+  const canvas = $("priceChart");
+
+  if (!canvas || state.prices.length < 2) {
+    return;
+  }
+
+  const ctx = canvas.getContext("2d");
+
+  if (!ctx) return;
+
+  const width = canvas.width;
+  const height = canvas.height;
+
+  ctx.clearRect(0, 0, width, height);
+
+  const min = Math.min(...state.prices);
+  const max = Math.max(...state.prices);
+
+  const range = max - min || 1;
+
+  ctx.beginPath();
+
+  state.prices.forEach((price, index) => {
+    const x =
+      (index / (state.prices.length - 1)) *
+      width;
+
+    const y =
+      height -
+      ((price - min) / range) *
+        (height - 20) -
+      10;
+
+    if (index === 0) {
+      ctx.moveTo(x, y);
     } else {
-      buying = false;
-      buyRequest = 0;
-      clearQuote();
-      el("quoteStatus").textContent =
-        "Connection lost. Purchase not confirmed.";
+      ctx.lineTo(x, y);
     }
+  });
+
+  ctx.stroke();
+}
+
+function requestQuote(contractType) {
+  if (!state.selectedSymbol) {
+    setText("quoteStatus", "Select a market first.");
+    return;
+  }
+
+  const amountInput = $("tradeAmount");
+  const durationInput = $("duration");
+
+  const amount = Number(
+    amountInput ? amountInput.value : 1
+  );
+
+  const duration = Number(
+    durationInput ? durationInput.value : 15
+  );
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    setText("quoteStatus", "Enter a valid trade amount.");
+    return;
+  }
+
+  if (!Number.isInteger(duration) || duration <= 0) {
+    setText("quoteStatus", "Enter a valid duration.");
+    return;
+  }
+
+  state.selectedContract = contractType;
+
+  state.quoteRequest = nextReqId();
+
+  setText("quoteStatus", "Requesting quote...");
+
+  const proposal = {
+    proposal: 1,
+    amount: amount,
+    basis: "stake",
+    contract_type: contractType,
+    currency: "USD",
+    duration: duration,
+    duration_unit: "t",
+    symbol: state.selectedSymbol,
+    req_id: state.quoteRequest
   };
 
-  el("logoutBtn").onclick = async () => {
-    if (demoWs) demoWs.close();
+  send(proposal);
+}
 
-    await fetch("/logout", {
-      method: "POST",
-      credentials: "same-origin"
+function handleProposal(data) {
+  const proposal = data.proposal;
+
+  if (!proposal) {
+    setText("quoteStatus", "No quote received.");
+    return;
+  }
+
+  setText("quoteStatus", "Quote received ✓");
+
+  const askPrice =
+    proposal.ask_price !== undefined
+      ? proposal.ask_price
+      : "--";
+
+  const payout =
+    proposal.payout !== undefined
+      ? proposal.payout
+      : "--";
+
+  setText("askPrice", askPrice);
+  setText("payout", payout);
+}
+
+function setupTradeButtons() {
+  const riseButton = $("riseButton");
+  const fallButton = $("fallButton");
+
+  if (riseButton) {
+    riseButton.addEventListener("click", () => {
+      requestQuote("CALL");
     });
+  }
 
-    location.reload();
-  };
+  if (fallButton) {
+    fallButton.addEventListener("click", () => {
+      requestQuote("PUT");
+    });
+  }
+}
+
+function setupLoginButton() {
+  const loginButton = $("loginButton");
+
+  if (!loginButton) return;
+
+  loginButton.addEventListener("click", () => {
+    window.location.href = "/login";
+  });
+}
+
+function setupLogoutButton() {
+  const logoutButton = $("logoutButton");
+
+  if (!logoutButton) return;
+
+  logoutButton.addEventListener("click", async () => {
+    try {
+      await fetch("/logout", {
+        method: "POST"
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
+
+    window.location.reload();
+  });
+}
+
+async function checkAccount() {
+  try {
+    const response = await fetch("/account-status");
+
+    const data = await response.json();
+
+    if (!response.ok || !data.connected) {
+      setText("accountStatus", "Log in first");
+      setText("balance", "--");
+      return;
+    }
+
+    setText("accountStatus", "Connected to Deriv ✓");
+
+    if (data.loginid) {
+      setText("loginid", data.loginid);
+    }
+
+    if (
+      data.balance !== undefined &&
+      data.currency
+    ) {
+      setText(
+        "balance",
+        Number(data.balance).toFixed(2) +
+          " " +
+          data.currency
+      );
+    }
+  } catch (error) {
+    console.error("Account status error:", error);
+
+    setText("accountStatus", "Unable to check account.");
+    setText("balance", "--");
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setupTradeButtons();
+  setupLoginButton();
+  setupLogoutButton();
 
   checkAccount();
-
-  try {
-    const response = await fetch("/api/config");
-    const config = await response.json();
-
-    connectPublic(config.appId);
-
-    if (!config.configured) {
-      el("accountStatus").textContent =
-        "Set DERIV_CLIENT_ID in Render.";
-    }
-  } catch {
-    status.textContent =
-      "Server configuration unavailable.";
-  }
+  connectDeriv();
 });
-          
