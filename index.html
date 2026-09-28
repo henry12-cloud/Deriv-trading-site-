@@ -112,7 +112,7 @@ footer{
 
 <label for="duration">Duration (Ticks)</label>
 <input id="duration" type="number"
- value="15" min="1" max="10">
+ value="5" min="1" max="10">
 
 <div class="actions">
 <button id="riseBtn" class="rise">RISE</button>
@@ -128,13 +128,22 @@ footer{
  <b id="payout">--</b>
 </p>
 
+
 <button id="buyBtn" class="buy" disabled>
- CONFIRM BUY
+ CONFIRM DEMO BUY
 </button>
-<p class="muted">
- Purchasing is disabled until authenticated
- trading is configured and tested.
+
+<p id="tradeNotice" class="muted">
+ DEMO TRADING ONLY — No real-money purchases.
+ Select RISE or FALL and wait for a valid
+ demo quote before confirming a purchase.
 </p>
+
+<p class="muted">
+ Check your Deriv account history before
+ retrying if a purchase result is unclear.
+</p>
+
 </section>
 </main>
 
@@ -147,4 +156,4 @@ Trading involves financial risk.
 
 <script src="/script.js"></script>
 </body>
-  </html>
+ </html>
