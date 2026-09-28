@@ -2,90 +2,149 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport"
-        content="width=device-width, initial-scale=1">
-  <title>Tradedollars</title>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/script.js?v=final2" defer></script>
+<meta charset="UTF-8">
+<meta name="viewport"
+ content="width=device-width,initial-scale=1">
+<title>Tradedollars</title>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;background:#081322;color:#eef5ff;
+ font-family:Arial,sans-serif;line-height:1.5
+}
+header{
+ padding:25px 16px;text-align:center;
+ background:#10263e;border-bottom:2px solid #16c784
+}
+h1{color:#20df9b;margin:0;font-size:32px}
+h2{font-size:20px;margin:0 0 15px}
+.subtitle{color:#b8c9db;font-size:13px}
+main{max-width:850px;margin:auto;padding:16px}
+.card{
+ background:#14253b;border:1px solid #29445e;
+ border-radius:15px;padding:20px;margin-bottom:18px
+}
+.status{color:#20df9b}
+.muted{color:#b8c9db}
+.price{
+ font-size:35px;font-weight:bold;
+ color:#20df9b;text-align:center
+}
+button,.btn{
+ border:0;border-radius:9px;padding:13px;
+ font-size:15px;font-weight:bold;cursor:pointer
+}
+.btn{
+ display:inline-block;background:#16c784;
+ color:#061c16;text-decoration:none
+}
+button:disabled{opacity:.4;cursor:not-allowed}
+select,input{
+ width:100%;padding:13px;margin:8px 0 15px;
+ border:1px solid #49627a;border-radius:8px;
+ background:#0b192a;color:white;font-size:16px
+}
+.actions{display:flex;gap:10px}
+.actions button{flex:1}
+.rise{background:#16c784;color:#061c16}
+.fall{background:#fa6279;color:#23060b}
+.selected{outline:3px solid white}
+.buy{
+ width:100%;background:#16c784;
+ margin-top:15px;color:#061c16
+}
+canvas{width:100%;height:190px}
+footer{
+ text-align:center;padding:25px;
+ font-size:12px;color:#aebfd0
+}
+.error{color:#ff8596}
+</style>
 </head>
 <body>
 
 <header>
-  <h1>Tradedollars</h1>
-  <p>Independent Third-Party Deriv Trading Interface</p>
-  <div id="connectionStatus">Connecting...</div>
+<h1>Tradedollars</h1>
+<div class="subtitle">
+ Independent Third-Party Deriv Trading Interface
+</div>
+<p id="connectionStatus">Connecting to Deriv...</p>
 </header>
 
 <main>
-  <section>
-    <h2>My Trading Account</h2>
-    <p id="accountStatus">Checking account...</p>
+<section class="card">
+<h2>My Trading Account</h2>
+<p id="accountStatus">Checking account...</p>
+<a href="/login" class="btn" id="loginBtn">
+ LOGIN WITH DERIV
+</a>
+<button id="logoutBtn" hidden>LOG OUT</button>
+<p id="accountId" class="muted"></p>
+<p id="balance">Balance: --</p>
+</section>
 
-    <button id="loginButton">LOGIN WITH DERIV</button>
-    <button id="logoutButton" hidden>LOG OUT</button>
+<section class="card">
+<h2>Available Markets</h2>
+<p id="marketStatus">Loading markets...</p>
+<select id="marketSelect">
+<option value="">Loading markets...</option>
+</select>
+<p>Selected Market:
+ <span id="selectedMarket">--</span>
+</p>
+</section>
 
-    <label for="accountSelect">Trading Account</label>
-    <select id="accountSelect" disabled>
-      <option>Checking account...</option>
-    </select>
+<section class="card">
+<h2>Live Market Price</h2>
+<div id="livePrice" class="price">--</div>
+<p id="priceStatus" class="muted">
+ Waiting for prices...
+</p>
+<h2>Live Price Chart</h2>
+<canvas id="chart" width="600" height="190"></canvas>
+</section>
 
-    <p>Balance: <strong id="balance">--</strong></p>
-  </section>
+<section class="card">
+<h2>Trade</h2>
+<label for="amount">Trade Amount (USD)</label>
+<input id="amount" type="number"
+ value="1" min="0.35" step="0.01">
 
-  <section>
-    <h2>Available Markets</h2>
-    <select id="marketSelect">
-      <option>Loading markets...</option>
-    </select>
-    <p id="marketStatus">Loading markets...</p>
-    <p>Selected Market: <span id="selectedMarket">--</span></p>
-  </section>
+<label for="duration">Duration (Ticks)</label>
+<input id="duration" type="number"
+ value="15" min="1" max="10">
 
-  <section>
-    <h2>Live Market Price</h2>
-    <div id="livePrice" class="price">--</div>
-    <p id="lastUpdate">Waiting for prices...</p>
-    <h3>Live Price Chart</h3>
-    <canvas id="chart" width="600" height="240"></canvas>
-  </section>
+<div class="actions">
+<button id="riseBtn" class="rise">RISE</button>
+<button id="fallBtn" class="fall">FALL</button>
+</div>
 
-  <section>
-    <h2>Trade</h2>
+<p id="directionStatus">
+ Select RISE or FALL.
+</p>
+<p id="quoteStatus">Quote: Waiting...</p>
+<p>Ask Price: <b id="askPrice">--</b></p>
+<p>Potential Payout:
+ <b id="payout">--</b>
+</p>
 
-    <label for="tradeAmount">Trade Amount (USD)</label>
-    <input id="tradeAmount" type="number"
-           min="0.35" step="0.01" value="1">
-
-    <label for="duration">Duration (Ticks)</label>
-    <input id="duration" type="number"
-           min="1" step="1" value="15">
-
-    <div class="trade-buttons">
-      <button id="riseButton">RISE</button>
-      <button id="fallButton">FALL</button>
-    </div>
-
-    <p id="tradeStatus">Select RISE or FALL.</p>
-    <p id="quoteStatus">Quote: Waiting...</p>
-    <p>Ask Price: <strong id="askPrice">--</strong></p>
-    <p>Potential Payout:
-      <strong id="potentialPayout">--</strong>
-    </p>
-
-    <button id="buyButton" disabled>CONFIRM BUY</button>
-    <p class="notice">
-      Purchasing is disabled until authenticated
-      trading is configured and tested.
-    </p>
-  </section>
+<button id="buyBtn" class="buy" disabled>
+ CONFIRM BUY
+</button>
+<p class="muted">
+ Purchasing is disabled until authenticated
+ trading is configured and tested.
+</p>
+</section>
 </main>
 
 <footer>
-  <p>Tradedollars — Independent Third-Party Interface</p>
-  <p>Not an official Deriv website.
-     Trading involves financial risk.</p>
+Tradedollars — Independent Third-Party Interface
+<br>
+Not an official Deriv website.
+Trading involves financial risk.
 </footer>
 
+<script src="/script.js"></script>
 </body>
   </html>
