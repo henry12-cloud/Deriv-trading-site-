@@ -3,16 +3,15 @@
   "name": "tradedollars",
   "version": "1.0.0",
   "private": true,
-  "description": "Independent third-party Deriv trading interface",
+  "description": "Independent third-party Deriv interface",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "engines": {
-    "node": ">=22 <25"
+    "node": ">=20"
   },
   "dependencies": {
-    "express": "^5.1.0"
+    "express": "^4.21.2"
   }
 }
-
