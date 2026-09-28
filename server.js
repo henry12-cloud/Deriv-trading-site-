@@ -19,32 +19,37 @@ const BASE_URL = (
 
 const REDIRECT_URI = BASE_URL + "/callback";
 const API = "https://api.derivws.com";
-
 const sessions = new Map();
 
 app.disable("x-powered-by");
-app.use(express.json());
+app.set("trust proxy", 1);
+app.use(express.json({ limit: "10kb" }));
 app.use(express.static(__dirname, {
-  index: false
+  index: false,
+  dotfiles: "deny"
 }));
-
-function cookies(req) {
-  const result = {};
-  (req.headers.cookie || "").split(";").forEach(item => {
-    const pos = item.indexOf("=");
-    if (pos > 0) {
-      result[item.slice(0, pos).trim()] =
-        item.slice(pos + 1).trim();
-    }
-  });
-  return result;
-}
 
 function random() {
   return crypto.randomBytes(32).toString("base64url");
 }
 
-function cookie(res, name, value, age) {
+function cookies(req) {
+  const result = {};
+
+  (req.headers.cookie || "")
+    .split(";")
+    .forEach(item => {
+      const pos = item.indexOf("=");
+      if (pos > 0) {
+        result[item.slice(0, pos).trim()] =
+          item.slice(pos + 1).trim();
+      }
+    });
+
+  return result;
+}
+
+function setCookie(res, name, value, age) {
   res.cookie(name, value, {
     httpOnly: true,
     secure: true,
@@ -54,16 +59,50 @@ function cookie(res, name, value, age) {
   });
 }
 
+function clearCookie(res, name) {
+  res.clearCookie(name, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    path: "/"
+  });
+}
+
 function session(req) {
   const id = cookies(req).td_session;
-  const item = sessions.get(id);
-  if (!item) return null;
+  if (!id) return null;
 
-  if (Date.now() > item.expires) {
+  const item = sessions.get(id);
+
+  if (!item || Date.now() > item.expires) {
     sessions.delete(id);
     return null;
   }
+
   return item;
+}
+
+function sameOrigin(req, res, next) {
+  const origin = req.get("origin");
+
+  if (origin !== BASE_URL) {
+    return res.status(403).json({
+      error: "Invalid request origin."
+    });
+  }
+
+  next();
+}
+
+function accountList(payload) {
+  const list = Array.isArray(payload)
+    ? payload
+    : payload?.data?.accounts ||
+      payload?.accounts ||
+      payload?.data ||
+      [];
+
+  return Array.isArray(list) ? list : [];
 }
 
 app.get("/", (req, res) => {
@@ -101,7 +140,7 @@ app.get("/login", (req, res) => {
     expires: Date.now() + 600000
   });
 
-  cookie(res, "td_pending", pendingId, 600000);
+  setCookie(res, "td_pending", pendingId, 600000);
 
   const url = new URL(
     "https://auth.deriv.com/oauth2/auth"
@@ -126,9 +165,7 @@ app.get(
 
     if (req.query.error) {
       return res.status(400).send(
-        "Deriv login error: " +
-        String(req.query.error_description ||
-          req.query.error)
+        "Deriv login was cancelled or declined."
       );
     }
 
@@ -139,13 +176,12 @@ app.get(
       req.query.state !== pending.state
     ) {
       return res.status(400).send(
-        "Login expired or invalid. Return to " +
-        "Tradedollars and log in again."
+        "Login expired. Return to Tradedollars."
       );
     }
 
     sessions.delete(pendingId);
-    res.clearCookie("td_pending", { path: "/" });
+    clearCookie(res, "td_pending");
 
     try {
       const response = await fetch(
@@ -169,91 +205,202 @@ app.get(
       const data = await response.json();
 
       if (!response.ok || !data.access_token) {
-        console.error("OAuth exchange failed", {
-          status: response.status,
-          error: data.error
-        });
+        console.error(
+          "OAuth exchange failed:",
+          response.status
+        );
 
         return res.status(400).send(
-          "Deriv could not complete login. " +
-          "Check your registered callback URL."
+          "Deriv login failed. Please try again."
         );
       }
 
+      const oldId = cookies(req).td_session;
+      if (oldId) sessions.delete(oldId);
+
       const id = random();
+      const lifetime =
+        (Number(data.expires_in) || 3600) * 1000;
 
       sessions.set(id, {
         token: data.access_token,
-        expires: Date.now() +
-          (Number(data.expires_in) || 3600) * 1000
+        expires: Date.now() + lifetime
       });
 
-      cookie(
-        res,
-        "td_session",
-        id,
-        (Number(data.expires_in) || 3600) * 1000
-      );
-
+      setCookie(res, "td_session", id, lifetime);
       res.redirect("/");
     } catch (err) {
-      console.error("OAuth error:", err.message);
+      console.error("OAuth request failed");
+
       res.status(502).send(
-        "Deriv authentication is temporarily unavailable."
+        "Deriv authentication is unavailable."
       );
     }
   }
 );
 
+async function fetchAccounts(token) {
+  const response = await fetch(
+    API + "/trading/v1/options/accounts",
+    {
+      headers: {
+        Authorization: "Bearer " + token
+      }
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error("Account request failed");
+  }
+
+  return response.json();
+}
+
 app.get("/api/account", async (req, res) => {
   const current = session(req);
 
-  if (!current || !current.token) {
+  if (!current?.token) {
     return res.status(401).json({
       connected: false
     });
   }
 
   try {
-    const response = await fetch(
-      API + "/trading/v1/options/accounts",
-      {
-        headers: {
-          Authorization: "Bearer " + current.token
-        }
-      }
+    const accounts = await fetchAccounts(
+      current.token
     );
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      return res.status(response.status).json({
-        connected: false,
-        error: "Could not retrieve Deriv accounts."
-      });
-    }
+    res.set("Cache-Control", "no-store");
 
     res.json({
       connected: true,
-      accounts: data
+      accounts
     });
-  } catch (err) {
+  } catch {
     res.status(502).json({
       connected: false,
-      error: "Account service unavailable."
+      error: "Unable to retrieve account."
     });
   }
 });
 
-app.post("/logout", (req, res) => {
+// DEMO ACCOUNTS ONLY.
+// Returns a short-lived authenticated WebSocket URL.
+// Never returns the user's OAuth access token.
+
+app.post(
+  "/api/demo-connection",
+  sameOrigin,
+  async (req, res) => {
+    res.set("Cache-Control", "no-store");
+
+    const current = session(req);
+
+    if (!current?.token) {
+      return res.status(401).json({
+        error: "Log in with Deriv first."
+      });
+    }
+
+    try {
+      const payload = await fetchAccounts(
+        current.token
+      );
+
+      const accounts = accountList(payload);
+
+      const demo = accounts.find(account =>
+        account.account_type === "demo" ||
+        account.type === "demo"
+      );
+
+      if (!demo) {
+        return res.status(403).json({
+          error: "No demo account available."
+        });
+      }
+
+      const accountId =
+        demo.account_id ||
+        demo.id ||
+        demo.loginid;
+
+      if (
+        typeof accountId !== "string" ||
+        !/^[A-Za-z0-9_-]{3,64}$/.test(accountId)
+      ) {
+        return res.status(400).json({
+          error: "Invalid demo account."
+        });
+      }
+
+      const response = await fetch(
+        API +
+        "/trading/v1/options/accounts/" +
+        encodeURIComponent(accountId) +
+        "/otp",
+        {
+          method: "POST",
+          headers: {
+            Authorization:
+              "Bearer " + current.token
+          }
+        }
+      );
+
+      if (!response.ok) {
+        return res.status(502).json({
+          error: "Demo connection unavailable."
+        });
+      }
+
+      const result = await response.json();
+      const wsUrl = result?.data?.url;
+
+      if (typeof wsUrl !== "string") {
+        throw new Error("Missing WebSocket URL");
+      }
+
+      const parsed = new URL(wsUrl);
+
+      if (
+        parsed.protocol !== "wss:" ||
+        parsed.hostname !== "api.derivws.com" ||
+        parsed.pathname !==
+          "/trading/v1/options/ws/demo" ||
+        !parsed.searchParams.get("otp")
+      ) {
+        throw new Error("Unexpected trading endpoint");
+      }
+
+      res.json({
+        accountId,
+        accountType: "demo",
+        wsUrl
+      });
+    } catch {
+      res.status(502).json({
+        error: "Unable to connect demo account."
+      });
+    }
+  }
+);
+
+app.post("/logout", sameOrigin, (req, res) => {
   const id = cookies(req).td_session;
+
   if (id) sessions.delete(id);
 
-  res.clearCookie("td_session", { path: "/" });
-  res.json({ connected: false });
+  clearCookie(res, "td_session");
+
+  res.json({
+    connected: false
+  });
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log("Tradedollars running on port " + PORT);
+  console.log(
+    "Tradedollars running on port " + PORT
+  );
 });
-                   
+  
