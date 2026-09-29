@@ -2,8 +2,7 @@
 {
   "name": "tradedollars",
   "version": "1.0.0",
-  "private": true,
-  "description": "Independent third-party Deriv interface",
+  "description": "Independent Third-Party Deriv Trading Interface",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -12,6 +11,9 @@
     "node": ">=20"
   },
   "dependencies": {
-    "express": "^4.21.2"
-  }
+    "express": "^4.21.2",
+    "express-session": "^1.18.1"
+  },
+  "private": true,
+  "license": "UNLICENSED"
 }
