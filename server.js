@@ -2,405 +2,489 @@
 "use strict";
 
 const express = require("express");
+const session = require("express-session");
 const crypto = require("crypto");
 const path = require("path");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+app.set("trust proxy", 1);
+app.disable("x-powered-by");
+
+app.use(express.json({ limit: "20kb" }));
+
 const CLIENT_ID =
   process.env.DERIV_CLIENT_ID ||
-  process.env.CLIENT_ID;
+  process.env.CLIENT_ID ||
+  "";
 
 const BASE_URL = (
   process.env.BASE_URL ||
   "https://tradedollars.onrender.com"
 ).replace(/\/+$/, "");
 
-const REDIRECT_URI = BASE_URL + "/callback";
-const API = "https://api.derivws.com";
-const sessions = new Map();
+const REDIRECT_URI =
+  BASE_URL + "/oauth/callback";
 
-app.disable("x-powered-by");
-app.set("trust proxy", 1);
-app.use(express.json({ limit: "10kb" }));
-app.use(express.static(__dirname, {
-  index: false,
-  dotfiles: "deny"
-}));
+const SESSION_SECRET =
+  process.env.SESSION_SECRET || "";
 
-function random() {
+const REAL_TRADING_ENABLED =
+  process.env.ENABLE_REAL_TRADING === "true";
+
+const API_BASE = "https://api.derivws.com";
+
+app.use(
+  session({
+    name: "tradedollars.sid",
+    secret:
+      SESSION_SECRET ||
+      crypto.randomBytes(32).toString("hex"),
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      secure: BASE_URL.startsWith("https://"),
+      sameSite: "lax",
+      maxAge: 60 * 60 * 1000
+    }
+  })
+);
+
+app.use(
+  express.static(path.join(__dirname), {
+    index: false,
+    dotfiles: "deny"
+  })
+);
+
+function makeRandom() {
   return crypto.randomBytes(32).toString("base64url");
 }
 
-function cookies(req) {
-  const result = {};
+function makeChallenge(verifier) {
+  return crypto
+    .createHash("sha256")
+    .update(verifier)
+    .digest("base64url");
+}
 
-  (req.headers.cookie || "")
-    .split(";")
-    .forEach(item => {
-      const pos = item.indexOf("=");
-      if (pos > 0) {
-        result[item.slice(0, pos).trim()] =
-          item.slice(pos + 1).trim();
-      }
+function saveSession(req) {
+  return new Promise((resolve, reject) => {
+    req.session.save((error) => {
+      if (error) reject(error);
+      else resolve();
     });
-
-  return result;
-}
-
-function setCookie(res, name, value, age) {
-  res.cookie(name, value, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    maxAge: age,
-    path: "/"
   });
 }
 
-function clearCookie(res, name) {
-  res.clearCookie(name, {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/"
-  });
+function isLoggedIn(req) {
+  return Boolean(
+    req.session.accessToken &&
+    req.session.expiresAt > Date.now()
+  );
 }
 
-function session(req) {
-  const id = cookies(req).td_session;
-  if (!id) return null;
-
-  const item = sessions.get(id);
-
-  if (!item || Date.now() > item.expires) {
-    sessions.delete(id);
-    return null;
-  }
-
-  return item;
-}
-
-function sameOrigin(req, res, next) {
-  const origin = req.get("origin");
-
-  if (origin !== BASE_URL) {
-    return res.status(403).json({
-      error: "Invalid request origin."
+function requireLogin(req, res, next) {
+  if (!isLoggedIn(req)) {
+    return res.status(401).json({
+      error: "Please log in with Deriv."
     });
   }
 
   next();
 }
 
-function accountList(payload) {
-  const list = Array.isArray(payload)
-    ? payload
-    : payload?.data?.accounts ||
-      payload?.accounts ||
-      payload?.data ||
-      [];
+async function derivRequest(
+  endpoint,
+  accessToken,
+  options = {}
+) {
+  const response = await fetch(API_BASE + endpoint, {
+    ...options,
+    headers: {
+      Authorization: "Bearer " + accessToken,
+      "Deriv-App-ID": CLIENT_ID,
+      "Content-Type": "application/json",
+      ...(options.headers || {})
+    },
+    signal: AbortSignal.timeout(15000)
+  });
 
-  return Array.isArray(list) ? list : [];
+  const result = await response.json();
+
+  if (!response.ok || result.error) {
+    throw new Error(
+      result.error?.message ||
+      result.errors?.[0]?.message ||
+      "Deriv request failed."
+    );
+  }
+
+  return result.data ?? result;
 }
+
+function getAccounts(result) {
+  if (Array.isArray(result)) return result;
+
+  if (Array.isArray(result.accounts)) {
+    return result.accounts;
+  }
+
+  if (Array.isArray(result.items)) {
+    return result.items;
+  }
+
+  return [];
+}
+
+function getAccountId(account) {
+  return String(
+    account.account_id ||
+    account.accountId ||
+    account.id ||
+    account.loginid ||
+    ""
+  );
+}
+
+function isDemoAccount(account) {
+  const description = String(
+    account.account_type ||
+    account.accountType ||
+    account.type ||
+    ""
+  ).toLowerCase();
+
+  return (
+    description.includes("demo") ||
+    description.includes("virtual") ||
+    getAccountId(account).startsWith("VRTC")
+  );
+}
+
+/*
+ * WEBSITE
+ */
 
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
+app.get("/health", (req, res) => {
+  res.json({
+    status: "ok",
+    application: "Tradedollars"
+  });
+});
+
 app.get("/api/config", (req, res) => {
   res.json({
-    configured: Boolean(CLIENT_ID),
-    appId: CLIENT_ID || "",
-    callback: REDIRECT_URI
+    app_id: CLIENT_ID,
+    configured: Boolean(
+      CLIENT_ID && SESSION_SECRET
+    ),
+    real_trading_enabled: REAL_TRADING_ENABLED
   });
 });
 
-app.get("/login", (req, res) => {
-  if (!CLIENT_ID) {
-    return res.status(500).send(
-      "Set DERIV_CLIENT_ID in Render."
+/*
+ * DERIV OAUTH LOGIN
+ */
+
+app.get("/login", async (req, res) => {
+  if (!CLIENT_ID || !SESSION_SECRET) {
+    return res.status(503).send(
+      "Configure CLIENT_ID and SESSION_SECRET on Render."
     );
   }
 
-  const state = random();
-  const verifier = random();
+  const verifier = makeRandom();
+  const state = makeRandom();
 
-  const challenge = crypto
-    .createHash("sha256")
-    .update(verifier)
-    .digest("base64url");
-
-  const pendingId = random();
-
-  sessions.set(pendingId, {
-    state,
-    verifier,
-    expires: Date.now() + 600000
-  });
-
-  setCookie(res, "td_pending", pendingId, 600000);
-
-  const url = new URL(
-    "https://auth.deriv.com/oauth2/auth"
-  );
-
-  url.searchParams.set("response_type", "code");
-  url.searchParams.set("client_id", CLIENT_ID);
-  url.searchParams.set("redirect_uri", REDIRECT_URI);
-  url.searchParams.set("scope", "trade");
-  url.searchParams.set("state", state);
-  url.searchParams.set("code_challenge", challenge);
-  url.searchParams.set("code_challenge_method", "S256");
-
-  res.redirect(url.toString());
-});
-
-app.get(
-  ["/callback", "/oauth/callback"],
-  async (req, res) => {
-    const pendingId = cookies(req).td_pending;
-    const pending = sessions.get(pendingId);
-
-    if (req.query.error) {
-      return res.status(400).send(
-        "Deriv login was cancelled or declined."
-      );
-    }
-
-    if (
-      !pending ||
-      pending.expires < Date.now() ||
-      !req.query.code ||
-      req.query.state !== pending.state
-    ) {
-      return res.status(400).send(
-        "Login expired. Return to Tradedollars."
-      );
-    }
-
-    sessions.delete(pendingId);
-    clearCookie(res, "td_pending");
-
-    try {
-      const response = await fetch(
-        "https://auth.deriv.com/oauth2/token",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type":
-              "application/x-www-form-urlencoded"
-          },
-          body: new URLSearchParams({
-            grant_type: "authorization_code",
-            client_id: CLIENT_ID,
-            code: String(req.query.code),
-            code_verifier: pending.verifier,
-            redirect_uri: REDIRECT_URI
-          })
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok || !data.access_token) {
-        console.error(
-          "OAuth exchange failed:",
-          response.status
-        );
-
-        return res.status(400).send(
-          "Deriv login failed. Please try again."
-        );
-      }
-
-      const oldId = cookies(req).td_session;
-      if (oldId) sessions.delete(oldId);
-
-      const id = random();
-      const lifetime =
-        (Number(data.expires_in) || 3600) * 1000;
-
-      sessions.set(id, {
-        token: data.access_token,
-        expires: Date.now() + lifetime
-      });
-
-      setCookie(res, "td_session", id, lifetime);
-      res.redirect("/");
-    } catch (err) {
-      console.error("OAuth request failed");
-
-      res.status(502).send(
-        "Deriv authentication is unavailable."
-      );
-    }
-  }
-);
-
-async function fetchAccounts(token) {
-  const response = await fetch(
-    API + "/trading/v1/options/accounts",
-    {
-      headers: {
-        Authorization: "Bearer " + token
-      }
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error("Account request failed");
-  }
-
-  return response.json();
-}
-
-app.get("/api/account", async (req, res) => {
-  const current = session(req);
-
-  if (!current?.token) {
-    return res.status(401).json({
-      connected: false
-    });
-  }
+  req.session.oauthVerifier = verifier;
+  req.session.oauthState = state;
 
   try {
-    const accounts = await fetchAccounts(
-      current.token
-    );
-
-    res.set("Cache-Control", "no-store");
-
-    res.json({
-      connected: true,
-      accounts
-    });
+    await saveSession(req);
   } catch {
-    res.status(502).json({
-      connected: false,
-      error: "Unable to retrieve account."
-    });
+    return res.status(500).send(
+      "Unable to start a login session."
+    );
   }
+
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: CLIENT_ID,
+    redirect_uri: REDIRECT_URI,
+    scope: "trade",
+    state,
+    code_challenge: makeChallenge(verifier),
+    code_challenge_method: "S256"
+  });
+
+  res.redirect(
+    "https://auth.deriv.com/oauth2/auth?" +
+    params.toString()
+  );
 });
 
-// DEMO ACCOUNTS ONLY.
-// Returns a short-lived authenticated WebSocket URL.
-// Never returns the user's OAuth access token.
+/*
+ * OAUTH CALLBACK
+ */
 
-app.post(
-  "/api/demo-connection",
-  sameOrigin,
-  async (req, res) => {
-    res.set("Cache-Control", "no-store");
+async function oauthCallback(req, res) {
+  const { code, state, error } = req.query;
 
-    const current = session(req);
+  if (error) {
+    return res.status(400).send(
+      "Deriv login was cancelled or rejected."
+    );
+  }
 
-    if (!current?.token) {
-      return res.status(401).json({
-        error: "Log in with Deriv first."
-      });
+  if (
+    typeof code !== "string" ||
+    typeof state !== "string" ||
+    !req.session.oauthState ||
+    !req.session.oauthVerifier ||
+    state !== req.session.oauthState
+  ) {
+    return res.status(400).send(
+      "Invalid or expired login session. Please log in again."
+    );
+  }
+
+  const verifier = req.session.oauthVerifier;
+
+  delete req.session.oauthState;
+  delete req.session.oauthVerifier;
+
+  try {
+    const response = await fetch(
+      "https://auth.deriv.com/oauth2/token",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/x-www-form-urlencoded"
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: CLIENT_ID,
+          code,
+          code_verifier: verifier,
+          redirect_uri: REDIRECT_URI
+        }),
+        signal: AbortSignal.timeout(15000)
+      }
+    );
+
+    const result = await response.json();
+
+    if (!response.ok || !result.access_token) {
+      throw new Error(
+        result.error_description ||
+        "Token exchange failed."
+      );
     }
 
+    req.session.accessToken = result.access_token;
+
+    req.session.expiresAt =
+      Date.now() +
+      Math.max(
+        0,
+        Number(result.expires_in || 3600) - 60
+      ) * 1000;
+
+    await saveSession(req);
+
+    res.redirect("/?login=success");
+  } catch (error) {
+    console.error("OAuth callback:", error.message);
+
+    res.status(502).send(
+      "Deriv login could not be completed. " +
+      "Please return to Tradedollars and try again."
+    );
+  }
+}
+
+app.get("/oauth/callback", oauthCallback);
+
+/*
+ * LOGOUT
+ */
+
+app.get("/logout", (req, res) => {
+  req.session.destroy(() => {
+    res.clearCookie("tradedollars.sid");
+    res.redirect("/");
+  });
+});
+
+/*
+ * ACCOUNT DETAILS
+ */
+
+app.get(
+  "/api/account",
+  requireLogin,
+  async (req, res) => {
     try {
-      const payload = await fetchAccounts(
-        current.token
+      const result = await derivRequest(
+        "/trading/v1/options/accounts",
+        req.session.accessToken
       );
 
-      const accounts = accountList(payload);
+      const accounts = getAccounts(result);
 
-      const demo = accounts.find(account =>
-        account.account_type === "demo" ||
-        account.type === "demo"
-      );
-
-      if (!demo) {
-        return res.status(403).json({
-          error: "No demo account available."
+      if (!accounts.length) {
+        return res.json({
+          connected: true,
+          accounts: [],
+          account: null
         });
       }
 
-      const accountId =
-        demo.account_id ||
-        demo.id ||
-        demo.loginid;
+      const account =
+        accounts.find(isDemoAccount) || accounts[0];
 
-      if (
-        typeof accountId !== "string" ||
-        !/^[A-Za-z0-9_-]{3,64}$/.test(accountId)
-      ) {
-        return res.status(400).json({
-          error: "Invalid demo account."
-        });
-      }
+      req.session.accountId = getAccountId(account);
 
-      const response = await fetch(
-        API +
-        "/trading/v1/options/accounts/" +
-        encodeURIComponent(accountId) +
-        "/otp",
-        {
-          method: "POST",
-          headers: {
-            Authorization:
-              "Bearer " + current.token
-          }
-        }
-      );
-
-      if (!response.ok) {
-        return res.status(502).json({
-          error: "Demo connection unavailable."
-        });
-      }
-
-      const result = await response.json();
-      const wsUrl = result?.data?.url;
-
-      if (typeof wsUrl !== "string") {
-        throw new Error("Missing WebSocket URL");
-      }
-
-      const parsed = new URL(wsUrl);
-
-      if (
-        parsed.protocol !== "wss:" ||
-        parsed.hostname !== "api.derivws.com" ||
-        parsed.pathname !==
-          "/trading/v1/options/ws/demo" ||
-        !parsed.searchParams.get("otp")
-      ) {
-        throw new Error("Unexpected trading endpoint");
-      }
+      await saveSession(req);
 
       res.json({
-        accountId,
-        accountType: "demo",
-        wsUrl
+        connected: true,
+        account: {
+          ...account,
+          loginid: getAccountId(account)
+        },
+        accounts: accounts.map((item) => ({
+          id: getAccountId(item),
+          currency: item.currency,
+          is_demo: isDemoAccount(item)
+        }))
       });
-    } catch {
+    } catch (error) {
       res.status(502).json({
-        error: "Unable to connect demo account."
+        error: error.message
       });
     }
   }
 );
 
-app.post("/logout", sameOrigin, (req, res) => {
-  const id = cookies(req).td_session;
+/*
+ * AUTHENTICATED TRADING CONNECTION
+ *
+ * Deriv supplies a one-time WebSocket URL.
+ * The browser connects directly using this URL.
+ */
 
-  if (id) sessions.delete(id);
+app.post(
+  "/api/trading-connection",
+  requireLogin,
+  async (req, res) => {
+    try {
+      const result = await derivRequest(
+        "/trading/v1/options/accounts",
+        req.session.accessToken
+      );
 
-  clearCookie(res, "td_session");
+      const accounts = getAccounts(result);
 
-  res.json({
-    connected: false
+      const requestedId = String(
+        req.body?.account_id || ""
+      );
+
+      let account;
+
+      if (requestedId) {
+        account = accounts.find(
+          (item) =>
+            getAccountId(item) === requestedId
+        );
+      } else {
+        account = accounts.find(isDemoAccount);
+      }
+
+      if (!account) {
+        return res.status(400).json({
+          error: "No eligible account found."
+        });
+      }
+
+      if (
+        !isDemoAccount(account) &&
+        !REAL_TRADING_ENABLED
+      ) {
+        return res.status(403).json({
+          error:
+            "Real-money trading is disabled. " +
+            "Select a demo account."
+        });
+      }
+
+      const accountId = getAccountId(account);
+
+      const otp = await derivRequest(
+        "/trading/v1/options/accounts/" +
+          encodeURIComponent(accountId) +
+          "/otp",
+        req.session.accessToken,
+        {
+          method: "POST"
+        }
+      );
+
+      const url = otp.url || otp.websocket_url;
+
+      if (
+        typeof url !== "string" ||
+        !url.startsWith("wss://api.derivws.com/")
+      ) {
+        throw new Error(
+          "Deriv did not return a valid trading URL."
+        );
+      }
+
+      res.set("Cache-Control", "no-store");
+
+      res.json({
+        url,
+        account_id: accountId,
+        currency: account.currency || "USD",
+        is_demo: isDemoAccount(account)
+      });
+    } catch (error) {
+      res.status(502).json({
+        error: error.message
+      });
+    }
+  }
+);
+
+/*
+ * ERROR HANDLING
+ */
+
+app.use((error, req, res, next) => {
+  console.error("Server error:", error.message);
+
+  res.status(500).json({
+    error: "An internal server error occurred."
   });
 });
 
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, () => {
   console.log(
     "Tradedollars running on port " + PORT
   );
+
+  if (!SESSION_SECRET) {
+    console.warn(
+      "SESSION_SECRET is missing. Configure it on Render."
+    );
+  }
 });
-  
