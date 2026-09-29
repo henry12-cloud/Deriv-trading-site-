@@ -3,49 +3,259 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+
   <meta
     name="viewport"
-    content="width=device-width, initial-scale=1.0"
+    content="width=device-width, initial-scale=1"
   >
+
   <title>Tradedollars | Trading Dashboard</title>
-  <link rel="stylesheet" href="/style.css">
-  <script src="/script.js" defer></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #09111f;
+      color: #f1f5f9;
+      font-family: Arial, sans-serif;
+      line-height: 1.5;
+    }
+
+    header {
+      padding: 24px 16px;
+      text-align: center;
+      background: #111d30;
+      border-bottom: 2px solid #00c896;
+    }
+
+    header h1 {
+      margin: 0;
+      color: #00e6a8;
+      font-size: 30px;
+    }
+
+    header p {
+      color: #a9b8cc;
+      font-size: 13px;
+    }
+
+    main {
+      max-width: 1100px;
+      margin: auto;
+      padding: 16px;
+    }
+
+    .card {
+      background: #142238;
+      border: 1px solid #263b55;
+      border-radius: 14px;
+      padding: 20px;
+      margin-bottom: 18px;
+    }
+
+    h2 {
+      margin-top: 0;
+      color: #e2e8f0;
+      font-size: 20px;
+    }
+
+    .status {
+      color: #00e6a8;
+      font-weight: bold;
+    }
+
+    .muted {
+      color: #a9b8cc;
+      font-size: 14px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(
+        auto-fit,
+        minmax(220px, 1fr)
+      );
+      gap: 16px;
+    }
+
+    label {
+      display: block;
+      margin: 12px 0 6px;
+      font-weight: bold;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 13px;
+      border: 1px solid #42546c;
+      border-radius: 8px;
+      background: #0b1627;
+      color: white;
+      font-size: 16px;
+    }
+
+    button {
+      padding: 14px 18px;
+      border: 0;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: bold;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    .primary {
+      background: #00c896;
+      color: #06151a;
+    }
+
+    .secondary {
+      background: #334155;
+      color: white;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .buttons button {
+      flex: 1;
+    }
+
+    .rise {
+      background: #087f5b;
+      color: white;
+    }
+
+    .fall {
+      background: #b42332;
+      color: white;
+    }
+
+    .selected {
+      outline: 3px solid #f8fafc;
+      outline-offset: 2px;
+    }
+
+    .price {
+      font-size: 34px;
+      font-weight: bold;
+      color: #00e6a8;
+      overflow-wrap: anywhere;
+    }
+
+    .chart-container {
+      width: 100%;
+      height: 260px;
+      background: #0b1627;
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    .stat {
+      padding: 18px;
+      border-radius: 10px;
+      background: #0b1627;
+      text-align: center;
+    }
+
+    .stat strong {
+      display: block;
+      font-size: 25px;
+      margin-top: 8px;
+    }
+
+    .green {
+      color: #00e6a8;
+    }
+
+    .red {
+      color: #ff647c;
+    }
+
+    .open-contract {
+      background: #0b1627;
+      border: 1px solid #30435c;
+      border-radius: 10px;
+      padding: 14px;
+      margin: 10px 0;
+    }
+
+    .warning {
+      background: #33291b;
+      border: 1px solid #a67c30;
+      padding: 14px;
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    footer {
+      text-align: center;
+      color: #94a3b8;
+      padding: 24px;
+      font-size: 12px;
+    }
+
+    @media (max-width: 500px) {
+      .buttons {
+        flex-direction: column;
+      }
+
+      .price {
+        font-size: 28px;
+      }
+
+      .card {
+        padding: 15px;
+      }
+    }
+  </style>
 </head>
 
 <body>
 
-  <header class="header">
+  <header>
     <h1>Tradedollars</h1>
-    <p>Independent Third-Party Deriv Trading Interface</p>
-    <div id="connectionStatus">
-      Connecting to Deriv...
+
+    <p>
+      Independent Third-Party Deriv Trading Interface
+    </p>
+
+    <div
+      id="connectionStatus"
+      class="status"
+      role="status"
+    >
+      Connecting...
     </div>
-    <span class="demo-badge">DEMO TRADING</span>
   </header>
 
-  <main class="container">
+  <main>
 
     <!-- ACCOUNT -->
+
     <section class="card">
       <h2>My Trading Account</h2>
 
-      <p id="accountStatus">Checking account...</p>
-
-      <button id="loginBtn" type="button">
-        LOGIN WITH DERIV
-      </button>
-
-      <button id="logoutBtn" type="button" hidden>
-        Logout
-      </button>
-
-      <label for="accountSelect">
-        Select Demo Account
-      </label>
-
-      <select id="accountSelect">
-        <option value="">Select account</option>
-      </select>
+      <p id="accountStatus">
+        Checking account...
+      </p>
 
       <p>
         Account:
@@ -56,20 +266,48 @@
         Balance:
         <strong id="balance">--</strong>
       </p>
+
+      <div class="buttons">
+        <button
+          id="loginBtn"
+          class="primary"
+          type="button"
+        >
+          LOGIN WITH DERIV
+        </button>
+
+        <button
+          id="logoutBtn"
+          class="secondary"
+          type="button"
+          hidden
+        >
+          LOG OUT
+        </button>
+      </div>
     </section>
 
     <!-- MARKETS -->
+
     <section class="card">
       <h2>Available Markets</h2>
 
-      <p id="marketStatus">Loading markets...</p>
+      <p
+        id="marketStatus"
+        class="muted"
+        role="status"
+      >
+        Loading markets...
+      </p>
 
       <label for="marketSelect">
         Choose Market
       </label>
 
       <select id="marketSelect">
-        <option value="">Loading...</option>
+        <option value="">
+          Loading markets...
+        </option>
       </select>
 
       <p>
@@ -78,43 +316,52 @@
       </p>
     </section>
 
-    <!-- LIVE PRICE -->
+    <!-- PRICE AND CHART -->
+
     <section class="card">
       <h2>Live Market Price</h2>
 
-      <div id="livePrice" class="price">--</div>
+      <div
+        id="livePrice"
+        class="price"
+        aria-live="off"
+      >
+        --
+      </div>
 
-      <p id="priceStatus">
+      <p
+        id="priceStatus"
+        class="muted"
+      >
         Waiting for prices...
       </p>
 
-      <h3>Live Price Chart</h3>
+      <h2>Live Price Chart</h2>
 
-      <canvas
-        id="chart"
-        width="600"
-        height="250"
-      ></canvas>
+      <div class="chart-container">
+        <canvas
+          id="chart"
+          aria-label="Live market price chart"
+          role="img"
+        ></canvas>
+      </div>
     </section>
 
-    <!-- TRADE -->
+    <!-- TRADING -->
+
     <section class="card">
       <h2>Trade</h2>
 
-      <p class="notice">
-        Demo accounts only. Trading involves risk.
-      </p>
-
       <label for="amount">
-        Trade Amount (USD)
+        Trade Amount
       </label>
 
       <input
         id="amount"
         type="number"
-        value="1"
         min="0.35"
         step="0.01"
+        value="1"
       >
 
       <label for="duration">
@@ -124,29 +371,41 @@
       <input
         id="duration"
         type="number"
-        value="5"
         min="1"
+        max="10"
         step="1"
+        value="5"
       >
 
-      <div class="trade-buttons">
-        <button id="riseBtn" type="button">
+      <div class="buttons">
+        <button
+          id="riseBtn"
+          class="rise"
+          type="button"
+        >
           RISE
         </button>
 
-        <button id="fallBtn" type="button">
+        <button
+          id="fallBtn"
+          class="fall"
+          type="button"
+        >
           FALL
         </button>
       </div>
 
-      <p id="directionStatus">
+      <p
+        id="directionStatus"
+        class="muted"
+      >
         Select RISE or FALL.
       </p>
 
-      <div class="quote">
-        <h3 id="quoteStatus">
+      <div class="card">
+        <p id="quoteStatus" role="status">
           Quote: Waiting...
-        </h3>
+        </p>
 
         <p>
           Ask Price:
@@ -161,97 +420,94 @@
 
       <button
         id="buyBtn"
+        class="primary"
         type="button"
         disabled
+        style="width:100%"
       >
-        CONFIRM DEMO BUY
+        CONFIRM BUY
       </button>
 
-      <p id="tradeStatus">
-        Connect a demo account to trade.
+      <p class="muted">
+        Trading is disabled until the secure
+        account connection is verified.
       </p>
     </section>
 
     <!-- OPEN CONTRACTS -->
+
     <section class="card">
       <h2>Open Contracts</h2>
 
       <div id="openContracts">
-        No open contracts.
+        <p class="muted">
+          No open contracts.
+        </p>
       </div>
     </section>
 
-    <!-- PERFORMANCE -->
+    <!-- RESULTS -->
+
     <section class="card">
       <h2>Trading Performance</h2>
 
-      <div class="stats">
-        <div>
-          <span>Total Trades</span>
-          <strong id="totalTrades">0</strong>
+      <div class="grid">
+        <div class="stat">
+          Wins
+          <strong
+            id="wins"
+            class="green"
+          >0</strong>
         </div>
 
-        <div>
-          <span>Wins</span>
-          <strong id="totalWins">0</strong>
+        <div class="stat">
+          Losses
+          <strong
+            id="losses"
+            class="red"
+          >0</strong>
         </div>
 
-        <div>
-          <span>Losses</span>
-          <strong id="totalLosses">0</strong>
-        </div>
-
-        <div>
-          <span>Win Rate</span>
-          <strong id="winRate">0%</strong>
-        </div>
-
-        <div>
-          <span>Total Profit / Loss</span>
-          <strong id="totalProfit">0.00 USD</strong>
+        <div class="stat">
+          Total Profit / Loss
+          <strong id="totalProfit">
+            0.00
+          </strong>
         </div>
       </div>
     </section>
 
     <!-- HISTORY -->
+
     <section class="card">
       <h2>Trade History</h2>
 
-      <div class="table-wrapper">
-        <table>
-          <thead>
-            <tr>
-              <th>Time</th>
-              <th>Market</th>
-              <th>Direction</th>
-              <th>Stake</th>
-              <th>Result</th>
-              <th>Profit / Loss</th>
-            </tr>
-          </thead>
-
-          <tbody id="tradeHistory">
-            <tr>
-              <td colspan="6">
-                No completed trades yet.
-              </td>
-            </tr>
-          </tbody>
-        </table>
+      <div id="tradeHistory">
+        <p class="muted">
+          No verified trade results yet.
+        </p>
       </div>
+    </section>
+
+    <!-- DISCLAIMER -->
+
+    <section class="warning">
+      Tradedollars is an independent third-party
+      trading interface and is not an official
+      Deriv website.
+
+      Trading involves financial risk.
+      Verify your account and trade details
+      before placing an order.
     </section>
 
   </main>
 
   <footer>
-    <p>
-      Tradedollars is an independent third-party
-      interface and is not an official Deriv website.
-    </p>
-    <p>
-      Trading involves financial risk.
-    </p>
+    Tradedollars — Independent Trading Interface
   </footer>
 
+  <script src="/script.js" defer></script>
+
 </body>
-       </html>
+        </html>
