@@ -462,79 +462,78 @@
   /* =======================================================
      MARKETS
   ======================================================= */
-
-  function loadMarkets(list) {
-    if (!Array.isArray(list)) {
-      setText(
-        ui.marketStatus,
-        "No markets returned by Deriv"
-      );
-
-      return;
-    }
-
-    state.markets =
-      list.filter(
-        market =>
-          market &&
-          market.symbol
-      );
-
-    if (!state.markets.length) {
-      setText(
-        ui.marketStatus,
-        "No markets returned by Deriv"
-      );
-
-      return;
-    }
-
-    if (ui.marketSelect) {
-      ui.marketSelect.innerHTML = "";
-
-      for (const market of state.markets) {
-        const option =
-          document.createElement("option");
-
-        option.value =
-          market.symbol;
-
-        option.textContent =
-          market.display_name ||
-          market.name ||
-          market.symbol;
-
-        ui.marketSelect.appendChild(
-          option
-        );
-      }
-    }
-
-    const preferred =
-      state.markets.find(
-        market =>
-          market.symbol === "1HZ100V"
-      );
-
-    state.symbol =
-      preferred
-        ? preferred.symbol
-        : state.markets[0].symbol;
-
-    if (ui.marketSelect) {
-      ui.marketSelect.value =
-        state.symbol;
-    }
-
-    updateSelectedMarket();
-
+function loadMarkets(list) {
+  if (!Array.isArray(list)) {
     setText(
       ui.marketStatus,
-      `${state.markets.length} markets loaded`
+      "No markets returned by Deriv"
     );
 
-    subscribeToMarket();
+    return;
   }
+
+  state.markets =
+    list.filter(
+      market =>
+        market &&
+        market.underlying_symbol
+    );
+
+  if (!state.markets.length) {
+    setText(
+      ui.marketStatus,
+      "No markets returned by Deriv"
+    );
+
+    return;
+  }
+
+  if (ui.marketSelect) {
+    ui.marketSelect.innerHTML = "";
+
+    for (const market of state.markets) {
+      const option =
+        document.createElement("option");
+
+      option.value =
+        market.underlying_symbol;
+
+      option.textContent =
+        market.underlying_symbol_name ||
+        market.underlying_symbol;
+
+      ui.marketSelect.appendChild(
+        option
+      );
+    }
+  }
+
+  const preferred =
+    state.markets.find(
+      market =>
+        market.underlying_symbol === "1HZ100V"
+    );
+
+  state.symbol =
+    preferred
+      ? preferred.underlying_symbol
+      : state.markets[0].underlying_symbol;
+
+  if (ui.marketSelect) {
+    ui.marketSelect.value =
+      state.symbol;
+  }
+
+  updateSelectedMarket();
+
+  setText(
+    ui.marketStatus,
+    `${state.markets.length} markets loaded`
+  );
+
+  subscribeToMarket();
+        }
+  
 
 
   function updateSelectedMarket() {
