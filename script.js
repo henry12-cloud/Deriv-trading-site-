@@ -849,13 +849,12 @@
   }
 
   function handleProposal(proposal) {
-  
-function handleProposal(proposal) {
   if (!proposal) {
     return;
   }
 
-  state.proposal = proposal;
+  state.proposal =
+    proposal;
 
   const proposalId =
     proposal.id ??
@@ -877,30 +876,36 @@ function handleProposal(proposal) {
       0
     );
 
-  state.proposalId = proposalId;
-  state.askPrice = askPrice;
-  state.payout = payout;
+  state.proposalId =
+    proposalId;
 
-  if (ui.quoteStatus) {
-    ui.quoteStatus.textContent = "Quote received ✓";
-  }
+  state.askPrice =
+    askPrice;
 
-  if (ui.askPrice) {
-    ui.askPrice.textContent =
-      askPrice > 0
-        ? askPrice.toFixed(2)
-        : "--";
-  }
+  state.payout =
+    payout;
 
-  if (ui.payout) {
-    ui.payout.textContent =
-      payout > 0
-        ? payout.toFixed(2)
-        : "--";
-  }
+  setText(
+    ui.quoteStatus,
+    "Quote received ✓"
+  );
+
+  setText(
+    ui.askPrice,
+    askPrice > 0
+      ? askPrice.toFixed(2)
+      : "--"
+  );
+
+  setText(
+    ui.payout,
+    payout > 0
+      ? payout.toFixed(2)
+      : "--"
+  );
 
   updateBuyButton();
-}
+  }
 
   /* =======================================================
      BUY BUTTON
