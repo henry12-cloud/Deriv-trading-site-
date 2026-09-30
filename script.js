@@ -181,8 +181,8 @@
       state.appId =
         config.app_id || null;
 
-      state.tradingEnabled =
-        config.real_trading_enabled === true;
+    state.tradingEnabled =
+  config.real_trading_enabled === true;
 
       if (!state.appId) {
         setText(
@@ -771,8 +771,7 @@
   /* =======================================================
      PROPOSAL
   ======================================================= */
-
-  function requestProposal() {
+function requestProposal() {
   if (
     !state.socket ||
     state.socket.readyState !== WebSocket.OPEN ||
@@ -822,9 +821,9 @@
       amount,
       basis: "stake",
       contract_type: contractType,
-      currency: "USD",
-duration,
-duration_unit: "t",
+     currency: "USD",
+    duration,
+    duration_unit: "t",
 underlying_symbol: state.symbol,
 req_id: nextId()
     }
@@ -846,9 +845,9 @@ req_id: nextId()
   );
 
   updateBuyButton();
-  }
+}
 
-  function handleProposal(proposal) {
+function handleProposal(proposal) {
   if (!proposal) {
     return;
   }
@@ -905,32 +904,33 @@ req_id: nextId()
   );
 
   updateBuyButton();
-  }
+}
+
 
   /* =======================================================
      BUY BUTTON
   ======================================================= */
 
   function updateBuyButton() {
-    if (!ui.buyBtn) {
-      return;
-    }
-
-    const ready =
-      state.connected &&
-      state.tradingEnabled &&
-      state.direction &&
-      state.proposal;
-
-    ui.buyBtn.disabled = !ready;
-
-    setText(
-      ui.tradeMessage,
-      ready
-        ? "Ready to trade."
-        : "Trading is currently disabled."
-    );
+  if (!ui.buyBtn) {
+    return;
   }
+
+  const ready =
+    state.connected &&
+    state.tradingEnabled &&
+    state.direction &&
+    state.proposal;
+
+  ui.buyBtn.disabled = !ready;
+
+  setText(
+    ui.tradeMessage,
+    ready
+      ? "Ready to trade."
+      : "Trading is currently disabled."
+  );
+}
 
 
   /* =======================================================
@@ -1041,7 +1041,7 @@ req_id: nextId()
      EXECUTE BUY
   ======================================================= */
 
-    async function executeBuy() {
+  async function executeBuy() {
   if (
     !state.connected ||
     !state.tradingEnabled ||
@@ -1144,7 +1144,8 @@ req_id: nextId()
   if (ui.buyBtn) {
     ui.buyBtn.disabled = true;
   }
-    }
+  }
+
   function waitForSocketOpen(socket) {
     return new Promise(resolve => {
       if (
@@ -1191,9 +1192,8 @@ req_id: nextId()
 
   /* =======================================================
      TRADING MESSAGES
-  ======================================================= */
-
-  function handleTradingMessage(result) {
+  ==================================================
+    function handleTradingMessage(result) {
     if (result.error) {
       console.error(
         "Trading API error:",
@@ -1209,7 +1209,7 @@ req_id: nextId()
       updateBuyButton();
 
       return;
-       }
+    }
 
     if (result.buy) {
       handleBuyResponse(
@@ -1320,9 +1320,9 @@ req_id: nextId()
 
     renderTrades();
 
-    subscribeContract(id);
+subscribeContract(id);
 
-    state.proposal = null;
+state.proposal = null;
 
     updateBuyButton();
   }
@@ -1338,7 +1338,7 @@ req_id: nextId()
       state.tradingSocket.readyState !==
         WebSocket.OPEN
     ) {
-          return;
+      return;
     }
 
     send(
@@ -1434,8 +1434,7 @@ req_id: nextId()
       resultStatus ||
       (
         result.is_sold
-
-            ? "sold"
+          ? "sold"
           : previous.status
       );
 
@@ -1527,10 +1526,8 @@ req_id: nextId()
 
       updateBuyButton();
     }
-  }
-
-
-  /* =======================================================
+          }
+    /* =======================================================
      TRADE DISPLAY
   ======================================================= */
 
@@ -1551,6 +1548,7 @@ req_id: nextId()
         contract =>
           isFinished(contract)
       );
+
     if (ui.openContracts) {
       ui.openContracts.innerHTML = "";
 
@@ -1742,7 +1740,7 @@ req_id: nextId()
     );
 
     setText(
-      ui.accountId, 
+      ui.accountId,
       "--"
     );
 
@@ -1881,3 +1879,4 @@ req_id: nextId()
   start();
 
 })();
+        
