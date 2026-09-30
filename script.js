@@ -825,7 +825,6 @@
       currency: "USD",
       duration,
       duration_unit: "t",
-      symbol: state.symbol,
       req_id: nextId()
     }
   );
