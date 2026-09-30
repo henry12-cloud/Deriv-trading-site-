@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -6,10 +5,10 @@
 
   <meta
     name="viewport"
-    content="width=device-width, initial-scale=1"
+    content="width=device-width, initial-scale=1.0"
   >
 
-  <title>Tradedollars | Trading Dashboard</title>
+  <title>Tradedollars</title>
 
   <style>
     * {
@@ -18,211 +17,193 @@
 
     body {
       margin: 0;
-      background: #09111f;
-      color: #f1f5f9;
       font-family: Arial, sans-serif;
-      line-height: 1.5;
+      background: #0f172a;
+      color: #f8fafc;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
     }
 
     header {
-      padding: 24px 16px;
       text-align: center;
-      background: #111d30;
-      border-bottom: 2px solid #00c896;
+      margin-bottom: 20px;
     }
 
     header h1 {
-      margin: 0;
-      color: #00e6a8;
+      margin: 0 0 6px;
       font-size: 30px;
     }
 
     header p {
-      color: #a9b8cc;
-      font-size: 13px;
-    }
-
-    main {
-      max-width: 1100px;
-      margin: auto;
-      padding: 16px;
-    }
-
-    .card {
-      background: #142238;
-      border: 1px solid #263b55;
-      border-radius: 14px;
-      padding: 20px;
-      margin-bottom: 18px;
-    }
-
-    h2 {
-      margin-top: 0;
-      color: #e2e8f0;
-      font-size: 20px;
+      margin: 0;
+      color: #94a3b8;
     }
 
     .status {
-      color: #00e6a8;
-      font-weight: bold;
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #1e293b;
+      text-align: center;
     }
 
-    .muted {
-      color: #a9b8cc;
-      font-size: 14px;
+    .card {
+      background: #1e293b;
+      border-radius: 16px;
+      padding: 18px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
     }
 
-    .grid {
+    .card h2 {
+      margin-top: 0;
+      font-size: 20px;
+    }
+
+    .account-grid {
       display: grid;
-      grid-template-columns: repeat(
-        auto-fit,
-        minmax(220px, 1fr)
-      );
-      gap: 16px;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
     }
 
-    label {
+    .account-box {
+      background: #0f172a;
+      padding: 14px;
+      border-radius: 10px;
+    }
+
+    .label {
       display: block;
-      margin: 12px 0 6px;
+      color: #94a3b8;
+      font-size: 13px;
+      margin-bottom: 5px;
+    }
+
+    .value {
+      font-size: 18px;
       font-weight: bold;
+    }
+
+    button,
+    select,
+    input {
+      width: 100%;
+      border: 0;
+      border-radius: 10px;
+      padding: 13px;
+      font-size: 16px;
     }
 
     input,
     select {
-      width: 100%;
-      padding: 13px;
-      border: 1px solid #42546c;
-      border-radius: 8px;
-      background: #0b1627;
-      color: white;
-      font-size: 16px;
+      background: #0f172a;
+      color: #fff;
+      border: 1px solid #334155;
     }
 
     button {
-      padding: 14px 18px;
-      border: 0;
-      border-radius: 8px;
       cursor: pointer;
-      font-size: 15px;
       font-weight: bold;
+      margin-top: 10px;
     }
 
+    #loginBtn {
+      background: #2563eb;
+      color: white;
+    }
+
+    #logoutBtn {
+      background: #475569;
+      color: white;
+    }
+
+    .direction-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    #riseBtn {
+      background: #16a34a;
+      color: white;
+    }
+
+    #fallBtn {
+      background: #dc2626;
+      color: white;
+    }
+
+    #buyBtn {
+      background: #f59e0b;
+      color: #111827;
+      font-size: 17px;
+    }
+
+    #buyBtn:disabled,
     button:disabled {
       opacity: 0.45;
       cursor: not-allowed;
     }
 
-    .primary {
-      background: #00c896;
-      color: #06151a;
-    }
-
-    .secondary {
-      background: #334155;
-      color: white;
-    }
-
-    .buttons {
-      display: flex;
-      gap: 12px;
-      margin-top: 18px;
-    }
-
-    .buttons button {
-      flex: 1;
-    }
-
-    .rise {
-      background: #087f5b;
-      color: white;
-    }
-
-    .fall {
-      background: #b42332;
-      color: white;
-    }
-
-    .selected {
-      outline: 3px solid #f8fafc;
-      outline-offset: 2px;
-    }
-
     .price {
+      text-align: center;
       font-size: 34px;
       font-weight: bold;
-      color: #00e6a8;
-      overflow-wrap: anywhere;
+      margin: 15px 0;
     }
 
-    .chart-container {
-      width: 100%;
-      height: 260px;
-      background: #0b1627;
+    .quote-grid,
+    .performance-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+    }
+
+    .info-box {
+      background: #0f172a;
+      padding: 12px;
       border-radius: 10px;
-      overflow: hidden;
     }
 
     canvas {
       width: 100%;
-      height: 100%;
-      display: block;
-    }
-
-    .stat {
-      padding: 18px;
+      height: 220px;
+      background: #0f172a;
       border-radius: 10px;
-      background: #0b1627;
-      text-align: center;
     }
 
-    .stat strong {
-      display: block;
-      font-size: 25px;
-      margin-top: 8px;
-    }
-
-    .green {
-      color: #00e6a8;
-    }
-
-    .red {
-      color: #ff647c;
-    }
-
-    .open-contract {
-      background: #0b1627;
-      border: 1px solid #30435c;
+    .contract {
+      background: #0f172a;
       border-radius: 10px;
-      padding: 14px;
-      margin: 10px 0;
+      padding: 12px;
+      margin-top: 10px;
+    }
+
+    .muted {
+      color: #94a3b8;
     }
 
     .warning {
-      background: #33291b;
-      border: 1px solid #a67c30;
-      padding: 14px;
-      border-radius: 8px;
+      color: #fbbf24;
       font-size: 13px;
+      line-height: 1.5;
     }
 
-    footer {
-      text-align: center;
-      color: #94a3b8;
-      padding: 24px;
-      font-size: 12px;
-    }
-
-    @media (max-width: 500px) {
-      .buttons {
-        flex-direction: column;
+    @media (max-width: 600px) {
+      .account-grid,
+      .quote-grid,
+      .performance-grid {
+        grid-template-columns: 1fr;
       }
 
-      .price {
-        font-size: 28px;
-      }
-
-      .card {
-        padding: 15px;
+      header h1 {
+        font-size: 26px;
       }
     }
   </style>
@@ -230,72 +211,96 @@
 
 <body>
 
-  <header>
-    <h1>Tradedollars</h1>
+  <div class="container">
 
-    <p>
-      Independent Third-Party Deriv Trading Interface
-    </p>
+    <header>
+      <h1>Tradedollars</h1>
 
-    <div
-      id="connectionStatus"
-      class="status"
-      role="status"
-    >
-      Connecting...
-    </div>
-  </header>
+      <p>
+        Independent Third-Party Deriv Trading Interface
+      </p>
 
-  <main>
+      <div
+        id="connectionStatus"
+        class="status"
+      >
+        Connecting...
+      </div>
+    </header>
+
 
     <!-- ACCOUNT -->
 
     <section class="card">
+
       <h2>My Trading Account</h2>
 
-      <p id="accountStatus">
-        Checking account...
-      </p>
+      <div class="account-grid">
 
-      <p>
-        Account:
-        <strong id="accountId">--</strong>
-      </p>
+        <div class="account-box">
+          <span class="label">
+            Account
+          </span>
 
-      <p>
-        Balance:
-        <strong id="balance">--</strong>
-      </p>
+          <span
+            id="accountStatus"
+            class="value"
+          >
+            Checking account...
+          </span>
+        </div>
 
-      <div class="buttons">
-        <button
-          id="loginBtn"
-          class="primary"
-          type="button"
-        >
-          LOGIN WITH DERIV
-        </button>
+        <div class="account-box">
+          <span class="label">
+            Account ID
+          </span>
 
-        <button
-          id="logoutBtn"
-          class="secondary"
-          type="button"
-          hidden
-        >
-          LOG OUT
-        </button>
+          <span
+            id="accountId"
+            class="value"
+          >
+            --
+          </span>
+        </div>
+
+        <div class="account-box">
+          <span class="label">
+            Balance
+          </span>
+
+          <span
+            id="balance"
+            class="value"
+          >
+            --
+          </span>
+        </div>
+
       </div>
+
+      <button id="loginBtn">
+        LOGIN WITH DERIV
+      </button>
+
+      <button
+        id="logoutBtn"
+        hidden
+      >
+        LOGOUT
+      </button>
+
     </section>
+
 
     <!-- MARKETS -->
 
     <section class="card">
+
       <h2>Available Markets</h2>
 
       <p
         id="marketStatus"
         class="muted"
-        role="status"
       >
         Loading markets...
       </p>
@@ -312,19 +317,23 @@
 
       <p>
         Selected Market:
-        <strong id="selectedMarket">--</strong>
+        <strong id="selectedMarket">
+          --
+        </strong>
       </p>
+
     </section>
 
-    <!-- PRICE AND CHART -->
+
+    <!-- PRICE -->
 
     <section class="card">
+
       <h2>Live Market Price</h2>
 
       <div
         id="livePrice"
         class="price"
-        aria-live="off"
       >
         --
       </div>
@@ -336,33 +345,39 @@
         Waiting for prices...
       </p>
 
-      <h2>Live Price Chart</h2>
-
-      <div class="chart-container">
-        <canvas
-          id="chart"
-          aria-label="Live market price chart"
-          role="img"
-        ></canvas>
-      </div>
     </section>
 
-    <!-- TRADING -->
+
+    <!-- CHART -->
 
     <section class="card">
+
+      <h2>Live Price Chart</h2>
+
+      <canvas id="chart"></canvas>
+
+    </section>
+
+
+    <!-- TRADE -->
+
+    <section class="card">
+
       <h2>Trade</h2>
 
       <label for="amount">
-        Trade Amount
+        Trade Amount (USD)
       </label>
 
       <input
         id="amount"
         type="number"
-        min="0.35"
+        min="1"
         step="0.01"
         value="1"
       >
+
+      <br><br>
 
       <label for="duration">
         Duration (Ticks)
@@ -372,142 +387,164 @@
         id="duration"
         type="number"
         min="1"
-        max="10"
         step="1"
         value="5"
       >
 
-      <div class="buttons">
-        <button
-          id="riseBtn"
-          class="rise"
-          type="button"
-        >
+      <div class="direction-buttons">
+
+        <button id="riseBtn">
           RISE
         </button>
 
-        <button
-          id="fallBtn"
-          class="fall"
-          type="button"
-        >
+        <button id="fallBtn">
           FALL
         </button>
+
       </div>
 
-      <p
-        id="directionStatus"
-        class="muted"
-      >
+      <p id="directionStatus">
         Select RISE or FALL.
       </p>
 
-      <div class="card">
-        <p id="quoteStatus" role="status">
-          Quote: Waiting...
-        </p>
+      <div class="quote-grid">
 
-        <p>
-          Ask Price:
-          <strong id="askPrice">--</strong>
-        </p>
+        <div class="info-box">
+          <span class="label">
+            Quote
+          </span>
 
-        <p>
-          Potential Payout:
-          <strong id="payout">--</strong>
-        </p>
+          <strong id="quoteStatus">
+            Waiting...
+          </strong>
+        </div>
+
+        <div class="info-box">
+          <span class="label">
+            Ask Price
+          </span>
+
+          <strong id="askPrice">
+            --
+          </strong>
+        </div>
+
+        <div class="info-box">
+          <span class="label">
+            Potential Payout
+          </span>
+
+          <strong id="payout">
+            --
+          </strong>
+        </div>
+
       </div>
 
       <button
         id="buyBtn"
-        class="primary"
-        type="button"
         disabled
-        style="width:100%"
       >
         CONFIRM BUY
       </button>
 
-      <p class="muted">
+      <p
+        id="tradeMessage"
+        class="warning"
+      >
         Trading is disabled until the secure
         account connection is verified.
       </p>
+
     </section>
+
 
     <!-- OPEN CONTRACTS -->
 
     <section class="card">
+
       <h2>Open Contracts</h2>
 
       <div id="openContracts">
-        <p class="muted">
-          No open contracts.
-        </p>
+        No open contracts.
       </div>
+
     </section>
 
-    <!-- RESULTS -->
+
+    <!-- PERFORMANCE -->
 
     <section class="card">
+
       <h2>Trading Performance</h2>
 
-      <div class="grid">
-        <div class="stat">
-          Wins
-          <strong
-            id="wins"
-            class="green"
-          >0</strong>
+      <div class="performance-grid">
+
+        <div class="info-box">
+          <span class="label">
+            Wins
+          </span>
+
+          <strong id="wins">
+            0
+          </strong>
         </div>
 
-        <div class="stat">
-          Losses
-          <strong
-            id="losses"
-            class="red"
-          >0</strong>
+        <div class="info-box">
+          <span class="label">
+            Losses
+          </span>
+
+          <strong id="losses">
+            0
+          </strong>
         </div>
 
-        <div class="stat">
-          Total Profit / Loss
+        <div class="info-box">
+          <span class="label">
+            Total Profit / Loss
+          </span>
+
           <strong id="totalProfit">
             0.00
           </strong>
         </div>
+
       </div>
+
     </section>
+
 
     <!-- HISTORY -->
 
     <section class="card">
+
       <h2>Trade History</h2>
 
       <div id="tradeHistory">
-        <p class="muted">
-          No verified trade results yet.
-        </p>
+        No verified trade results yet.
       </div>
+
     </section>
 
-    <!-- DISCLAIMER -->
 
-    <section class="warning">
-      Tradedollars is an independent third-party
-      trading interface and is not an official
-      Deriv website.
+    <section class="card">
 
-      Trading involves financial risk.
-      Verify your account and trade details
-      before placing an order.
+      <p class="warning">
+        Tradedollars is an independent third-party
+        interface and is not an official Deriv website.
+        Trading involves financial risk.
+      </p>
+
     </section>
 
-  </main>
+  </div>
 
-  <footer>
-    Tradedollars — Independent Trading Interface
-  </footer>
 
-  <script src="/script.js" defer></script>
+  <script
+    src="/script.js"
+    defer
+  ></script>
 
 </body>
-        </html>
+  </html>
