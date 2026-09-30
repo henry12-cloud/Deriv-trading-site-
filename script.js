@@ -829,36 +829,58 @@
 
 
   function handleProposal(proposal) {
-    state.proposal = proposal;
-
-    const ask =
-      Number(proposal.ask_price);
-
-    const payout =
-      Number(proposal.payout);
-
-    setText(
-      ui.quoteStatus,
-      "Quote received ✓"
-    );
-
-    setText(
-      ui.askPrice,
-      Number.isFinite(ask)
-        ? money(ask)
-        : "--"
-    );
-
-    setText(
-      ui.payout,
-      Number.isFinite(payout)
-        ? money(payout)
-        : "--"
-    );
-
-    updateBuyButton();
+  
+function handleProposal(proposal) {
+  if (!proposal) {
+    return;
   }
 
+  state.proposal = proposal;
+
+  const proposalId =
+    proposal.id ??
+    proposal.proposal_id ??
+    "";
+
+  const askPrice =
+    Number(
+      proposal.ask_price ??
+      proposal.display_value ??
+      proposal.buy_price ??
+      0
+    );
+
+  const payout =
+    Number(
+      proposal.payout ??
+      proposal.sell_price ??
+      0
+    );
+
+  state.proposalId = proposalId;
+  state.askPrice = askPrice;
+  state.payout = payout;
+
+  if (ui.quoteStatus) {
+    ui.quoteStatus.textContent = "Quote received ✓";
+  }
+
+  if (ui.askPrice) {
+    ui.askPrice.textContent =
+      askPrice > 0
+        ? askPrice.toFixed(2)
+        : "--";
+  }
+
+  if (ui.payout) {
+    ui.payout.textContent =
+      payout > 0
+        ? payout.toFixed(2)
+        : "--";
+  }
+
+  updateBuyButton();
+}
 
   /* =======================================================
      BUY BUTTON
