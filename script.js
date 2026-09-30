@@ -14,8 +14,12 @@
 
     direction: null,
     proposal: null,
+    proposalId: null,
+    askPrice: 0,
+    payout: 0,
 
     tradingEnabled: false,
+    
 
     socket: null,
     tradingSocket: null,
