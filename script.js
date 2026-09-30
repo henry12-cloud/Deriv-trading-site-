@@ -537,22 +537,23 @@ function loadMarkets(list) {
 
 
   function updateSelectedMarket() {
-    const market =
-      state.markets.find(
-        item =>
-          item.symbol === state.symbol
-      );
-
-    setText(
-      ui.selectedMarket,
-      market
-        ? (
-            market.display_name ||
-            market.name ||
-            market.symbol
-          )
-        : "--"
+  const market =
+    state.markets.find(
+      item =>
+        item.underlying_symbol === state.symbol
     );
+
+  setText(
+    ui.selectedMarket,
+    market
+      ? (
+          market.underlying_symbol_name ||
+          market.display_name ||
+          market.name ||
+          market.underlying_symbol
+        )
+      : "--"
+  );
   }
 
 
