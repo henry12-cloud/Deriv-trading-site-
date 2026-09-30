@@ -1721,6 +1721,15 @@
       );
     }
 
+    if (ui.loginBtn) {
+      ui.loginBtn.addEventListener(
+        "click",
+        () => {
+          window.location.href = "/login";
+        }
+      );
+    }
+
     if (ui.marketSelect) {
       ui.marketSelect.addEventListener(
         "change",
