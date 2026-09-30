@@ -380,9 +380,7 @@
             event.data
           );
 
-        handlePublicMessage(
-          data
-        );
+        handlePublicMessage(data);
 
       } catch (error) {
         console.error(
@@ -462,98 +460,98 @@
   /* =======================================================
      MARKETS
   ======================================================= */
-function loadMarkets(list) {
-  if (!Array.isArray(list)) {
-    setText(
-      ui.marketStatus,
-      "No markets returned by Deriv"
-    );
 
-    return;
-  }
-
-  state.markets =
-    list.filter(
-      market =>
-        market &&
-        market.underlying_symbol
-    );
-
-  if (!state.markets.length) {
-    setText(
-      ui.marketStatus,
-      "No markets returned by Deriv"
-    );
-
-    return;
-  }
-
-  if (ui.marketSelect) {
-    ui.marketSelect.innerHTML = "";
-
-    for (const market of state.markets) {
-      const option =
-        document.createElement("option");
-
-      option.value =
-        market.underlying_symbol;
-
-      option.textContent =
-        market.underlying_symbol_name ||
-        market.underlying_symbol;
-
-      ui.marketSelect.appendChild(
-        option
+  function loadMarkets(list) {
+    if (!Array.isArray(list)) {
+      setText(
+        ui.marketStatus,
+        "No markets returned by Deriv"
       );
-    }
-  }
 
-  const preferred =
-    state.markets.find(
-      market =>
-        market.underlying_symbol === "1HZ100V"
+      return;
+    }
+
+    state.markets =
+      list.filter(
+        market =>
+          market &&
+          market.underlying_symbol
+      );
+
+    if (!state.markets.length) {
+      setText(
+        ui.marketStatus,
+        "No markets returned by Deriv"
+      );
+
+      return;
+    }
+
+    if (ui.marketSelect) {
+      ui.marketSelect.innerHTML = "";
+
+      for (const market of state.markets) {
+        const option =
+          document.createElement("option");
+
+        option.value =
+          market.underlying_symbol;
+
+        option.textContent =
+          market.underlying_symbol_name ||
+          market.underlying_symbol;
+
+        ui.marketSelect.appendChild(
+          option
+        );
+      }
+    }
+
+    const preferred =
+      state.markets.find(
+        market =>
+          market.underlying_symbol === "1HZ100V"
+      );
+
+    state.symbol =
+      preferred
+        ? preferred.underlying_symbol
+        : state.markets[0].underlying_symbol;
+
+    if (ui.marketSelect) {
+      ui.marketSelect.value =
+        state.symbol;
+    }
+
+    updateSelectedMarket();
+
+    setText(
+      ui.marketStatus,
+      `${state.markets.length} markets loaded`
     );
 
-  state.symbol =
-    preferred
-      ? preferred.underlying_symbol
-      : state.markets[0].underlying_symbol;
-
-  if (ui.marketSelect) {
-    ui.marketSelect.value =
-      state.symbol;
+    subscribeToMarket();
   }
-
-  updateSelectedMarket();
-
-  setText(
-    ui.marketStatus,
-    `${state.markets.length} markets loaded`
-  );
-
-  subscribeToMarket();
-        }
-  
 
 
   function updateSelectedMarket() {
-  const market =
-    state.markets.find(
-      item =>
-        item.underlying_symbol === state.symbol
-    );
+    const market =
+      state.markets.find(
+        item =>
+          item.underlying_symbol === state.symbol
+      );
 
-  setText(
-    ui.selectedMarket,
-    market
-      ? (
-          market.underlying_symbol_name ||
-          market.display_name ||
-          market.name ||
-          market.underlying_symbol
-        )
-      : "--"
-  );
+    setText(
+      ui.selectedMarket,
+      market
+        ? (
+            market.underlying_symbol_name ||
+            market.display_name ||
+            market.name ||
+            market.underlying_symbol
+          )
+        : "--"
+    );
   }
 
 
@@ -808,30 +806,18 @@ function loadMarkets(list) {
         : "PUT";
 
     send(
-      state.socket,
+      
+            state.socket,
       {
         proposal: 1,
-
         amount,
-
         basis: "stake",
-
-        contract_type:
-          contractType,
-
-        currency:
-          "USD",
-
+        contract_type: contractType,
+        currency: "USD",
         duration,
-
-        duration_unit:
-          "t",
-
-        symbol:
-          state.symbol,
-
-        req_id:
-          nextId()
+        duration_unit: "t",
+        symbol: state.symbol,
+        req_id: nextId()
       }
     );
 
@@ -843,18 +829,13 @@ function loadMarkets(list) {
 
 
   function handleProposal(proposal) {
-    state.proposal =
-      proposal;
+    state.proposal = proposal;
 
     const ask =
-      Number(
-        proposal.ask_price
-      );
+      Number(proposal.ask_price);
 
     const payout =
-      Number(
-        proposal.payout
-      );
+      Number(proposal.payout);
 
     setText(
       ui.quoteStatus,
@@ -894,20 +875,14 @@ function loadMarkets(list) {
       state.direction &&
       state.proposal;
 
-    ui.buyBtn.disabled =
-      !ready;
+    ui.buyBtn.disabled = !ready;
 
-    if (ready) {
-      setText(
-        ui.tradeMessage,
-        "Ready to trade."
-      );
-    } else {
-      setText(
-        ui.tradeMessage,
-        "Trading is currently disabled."
-      );
-    }
+    setText(
+      ui.tradeMessage,
+      ready
+        ? "Ready to trade."
+        : "Trading is currently disabled."
+    );
   }
 
 
@@ -929,11 +904,6 @@ function loadMarkets(list) {
         await response.json();
 
       if (!response.ok) {
-        console.error(
-          "Trading connection:",
-          data
-        );
-
         setText(
           ui.tradeMessage,
           data.error ||
@@ -959,29 +929,21 @@ function loadMarkets(list) {
       }
 
       state.tradingSocket =
-        new WebSocket(
-          data.ws_url
+        new WebSocket(data.ws_url);
+
+      state.tradingSocket.onopen = () => {
+        console.log(
+          "Authenticated Deriv connection opened."
         );
-
-      state.tradingSocket.onopen =
-        () => {
-          console.log(
-            "Authenticated Deriv connection opened."
-          );
-        };
-
+      };
 
       state.tradingSocket.onmessage =
         event => {
           try {
             const result =
-              JSON.parse(
-                event.data
-              );
+              JSON.parse(event.data);
 
-            handleTradingMessage(
-              result
-            );
+            handleTradingMessage(result);
 
           } catch (error) {
             console.error(
@@ -990,7 +952,6 @@ function loadMarkets(list) {
             );
           }
         };
-
 
       state.tradingSocket.onerror =
         error => {
@@ -1005,13 +966,11 @@ function loadMarkets(list) {
           );
         };
 
-
-      state.tradingSocket.onclose =
-        () => {
-          console.log(
-            "Authenticated Deriv connection closed."
-          );
-        };
+      state.tradingSocket.onclose = () => {
+        console.log(
+          "Authenticated Deriv connection closed."
+        );
+      };
 
       return true;
 
@@ -1096,9 +1055,19 @@ function loadMarkets(list) {
         return;
       }
 
-      await waitForSocketOpen(
-        state.tradingSocket
-      );
+      const opened =
+        await waitForSocketOpen(
+          state.tradingSocket
+        );
+
+      if (!opened) {
+        setText(
+          ui.tradeMessage,
+          "Trading connection timed out."
+        );
+
+        return;
+      }
     }
 
     setText(
@@ -1110,14 +1079,9 @@ function loadMarkets(list) {
       send(
         state.tradingSocket,
         {
-          buy:
-            String(proposalId),
-
-          price:
-            askPrice,
-
-          req_id:
-            nextId()
+          buy: String(proposalId),
+          price: askPrice,
+          req_id: nextId()
         }
       );
 
@@ -1140,7 +1104,8 @@ function loadMarkets(list) {
     return new Promise(resolve => {
       if (
         socket &&
-        socket.readyState === WebSocket.OPEN
+        socket.readyState ===
+          WebSocket.OPEN
       ) {
         resolve(true);
         return;
@@ -1166,7 +1131,10 @@ function loadMarkets(list) {
         event => {
           clearTimeout(timeout);
 
-          if (typeof previousOpen === "function") {
+          if (
+            typeof previousOpen ===
+              "function"
+          ) {
             previousOpen(event);
           }
 
@@ -1174,6 +1142,7 @@ function loadMarkets(list) {
         };
     });
   }
+
 
   /* =======================================================
      TRADING MESSAGES
@@ -1195,10 +1164,13 @@ function loadMarkets(list) {
       updateBuyButton();
 
       return;
-    }
+       }
 
     if (result.buy) {
-      handleBuyResponse(result.buy);
+      handleBuyResponse(
+        result.buy
+      );
+
       return;
     }
 
@@ -1206,12 +1178,15 @@ function loadMarkets(list) {
       handleContract(
         result.proposal_open_contract
       );
+
       return;
     }
 
     if (result.balance) {
       const balance =
-        Number(result.balance.balance);
+        Number(
+          result.balance.balance
+        );
 
       if (Number.isFinite(balance)) {
         const currency =
@@ -1246,11 +1221,15 @@ function loadMarkets(list) {
         "Trade accepted but contract ID is missing."
       );
 
+      updateBuyButton();
+
       return;
     }
 
     const buyPrice =
-      Number(buy.buy_price);
+      Number(
+        buy.buy_price
+      );
 
     state.contracts.set(
       id,
@@ -1277,7 +1256,15 @@ function loadMarkets(list) {
 
         currency:
           state.account?.currency ||
-          "USD"
+          "USD",
+
+        sell_price: null,
+
+        payout: null,
+
+        entry_spot: null,
+
+        exit_spot: null
       }
     );
 
@@ -1306,18 +1293,15 @@ function loadMarkets(list) {
       state.tradingSocket.readyState !==
         WebSocket.OPEN
     ) {
-      return;
+          return;
     }
 
     send(
       state.tradingSocket,
       {
         proposal_open_contract: 1,
-
         contract_id: id,
-
         subscribe: 1,
-
         req_id: nextId()
       }
     );
@@ -1365,10 +1349,14 @@ function loadMarkets(list) {
       };
 
     const buyPrice =
-      Number(result.buy_price);
+      Number(
+        result.buy_price
+      );
 
     const previousBuyPrice =
-      Number(previous.buy_price);
+      Number(
+        previous.buy_price
+      );
 
     const finalBuyPrice =
       Number.isFinite(buyPrice)
@@ -1382,19 +1370,38 @@ function loadMarkets(list) {
           );
 
     const profitValue =
-      Number(result.profit);
+      Number(
+        result.profit
+      );
 
     const finalProfit =
       Number.isFinite(profitValue)
         ? profitValue
         : previous.profit;
 
+    const resultStatus =
+      String(
+        result.status ||
+        ""
+      ).toLowerCase();
+
     const status =
-      result.status ||
+      resultStatus ||
       (
         result.is_sold
-          ? "sold"
+
+            ? "sold"
           : previous.status
+      );
+
+    const sellPrice =
+      Number(
+        result.sell_price
+      );
+
+    const payout =
+      Number(
+        result.payout
       );
 
     const updated = {
@@ -1411,17 +1418,13 @@ function loadMarkets(list) {
       status,
 
       sell_price:
-        Number.isFinite(
-          Number(result.sell_price)
-        )
-          ? Number(result.sell_price)
+        Number.isFinite(sellPrice)
+          ? sellPrice
           : previous.sell_price,
 
       payout:
-        Number.isFinite(
-          Number(result.payout)
-        )
-          ? Number(result.payout)
+        Number.isFinite(payout)
+          ? payout
           : previous.payout,
 
       entry_spot:
@@ -1451,16 +1454,31 @@ function loadMarkets(list) {
       status === "expired";
 
     if (finished) {
-      setText(
-        ui.tradeMessage,
+      if (
         Number.isFinite(finalProfit)
-          ? (
-              finalProfit >= 0
-                ? `Trade won ✓ Profit ${money(finalProfit)}`
-                : `Trade lost. Result ${money(finalProfit)}`
-            )
-          : "Trade finished."
-      );
+      ) {
+        if (finalProfit > 0) {
+          setText(
+            ui.tradeMessage,
+            `Trade won ✓ Profit ${money(finalProfit)}`
+          );
+        } else if (finalProfit < 0) {
+          setText(
+            ui.tradeMessage,
+            `Trade lost. Result ${money(finalProfit)}`
+          );
+        } else {
+          setText(
+            ui.tradeMessage,
+            "Trade finished. Profit 0.00"
+          );
+        }
+      } else {
+        setText(
+          ui.tradeMessage,
+          "Trade finished."
+        );
+      }
 
       updateBuyButton();
     }
@@ -1488,7 +1506,6 @@ function loadMarkets(list) {
         contract =>
           isFinished(contract)
       );
-
     if (ui.openContracts) {
       ui.openContracts.innerHTML = "";
 
@@ -1502,6 +1519,7 @@ function loadMarkets(list) {
         ui.openContracts.appendChild(
           empty
         );
+
       } else {
         for (const contract of open) {
           const box =
@@ -1538,7 +1556,9 @@ function loadMarkets(list) {
 
     for (const contract of finished) {
       const profit =
-        Number(contract.profit);
+        Number(
+          contract.profit
+        );
 
       if (!Number.isFinite(profit)) {
         continue;
@@ -1555,6 +1575,7 @@ function loadMarkets(list) {
 
     setText(ui.wins, wins);
     setText(ui.losses, losses);
+
     setText(
       ui.totalProfit,
       money(totalProfit)
@@ -1573,6 +1594,7 @@ function loadMarkets(list) {
         ui.tradeHistory.appendChild(
           empty
         );
+
       } else {
         const sorted =
           finished.slice().reverse();
@@ -1585,12 +1607,14 @@ function loadMarkets(list) {
             "trade-history-row";
 
           const profit =
-            Number(contract.profit);
+            Number(
+              contract.profit
+            );
 
           const resultText =
             Number.isFinite(profit)
               ? (
-                  profit >= 0
+                  profit > 0
                     ? `+${money(profit)}`
                     : money(profit)
                 )
@@ -1613,11 +1637,17 @@ function loadMarkets(list) {
       return false;
     }
 
+    const status =
+      String(
+        contract.status ||
+        ""
+      ).toLowerCase();
+
     return (
-      contract.status === "sold" ||
-      contract.status === "won" ||
-      contract.status === "lost" ||
-      contract.status === "expired" ||
+      status === "sold" ||
+      status === "won" ||
+      status === "lost" ||
+      status === "expired" ||
       (
         contract.profit !== null &&
         contract.profit !== undefined
@@ -1639,6 +1669,7 @@ function loadMarkets(list) {
           credentials: "same-origin"
         }
       );
+
     } catch (error) {
       console.error(
         "Logout error:",
@@ -1648,6 +1679,9 @@ function loadMarkets(list) {
 
     state.connected = false;
     state.account = null;
+    state.proposal = null;
+
+    state.contracts.clear();
 
     if (state.tradingSocket) {
       try {
@@ -1679,6 +1713,8 @@ function loadMarkets(list) {
     if (ui.logoutBtn) {
       ui.logoutBtn.hidden = true;
     }
+
+    renderTrades();
 
     updateBuyButton();
   }
@@ -1725,12 +1761,12 @@ function loadMarkets(list) {
       ui.loginBtn.addEventListener(
         "click",
         () => {
-          window.location.href = "/login";
+          window.location.href =
+            "/login";
         }
       );
     }
-
-    if (ui.marketSelect) {
+        if (ui.marketSelect) {
       ui.marketSelect.addEventListener(
         "change",
         () => {
