@@ -773,60 +773,80 @@
   ======================================================= */
 
   function requestProposal() {
-    if (
-      !state.socket ||
-      !state.symbol ||
-      !state.direction
-    ) {
-      return;
-    }
-
-    const amount =
-      Number(
-        ui.amount?.value
-      );
-
-    const duration =
-      Number(
-        ui.duration?.value
-      );
-
-    if (
-      !Number.isFinite(amount) ||
-      amount <= 0 ||
-      !Number.isFinite(duration) ||
-      duration <= 0
-    ) {
-      return;
-    }
-
-    const contractType =
-      state.direction === "RISE"
-        ? "CALL"
-        : "PUT";
-
-    send(
-      
-            state.socket,
-      {
-        proposal: 1,
-        amount,
-        basis: "stake",
-        contract_type: contractType,
-        currency: "USD",
-        duration,
-        duration_unit: "t",
-        symbol: state.symbol,
-        req_id: nextId()
-      }
-    );
-
-    setText(
-      ui.quoteStatus,
-      "Requesting..."
-    );
+  if (
+    !state.socket ||
+    state.socket.readyState !== WebSocket.OPEN ||
+    !state.symbol ||
+    !state.direction
+  ) {
+    return;
   }
 
+  const amount =
+    Number(
+      ui.amount?.value
+    );
+
+  const duration =
+    Number(
+      ui.duration?.value
+    );
+
+  if (
+    !Number.isFinite(amount) ||
+    amount <= 0 ||
+    !Number.isFinite(duration) ||
+    duration <= 0
+  ) {
+    setText(
+      ui.quoteStatus,
+      "Enter valid trade details."
+    );
+    return;
+  }
+
+  const contractType =
+    state.direction === "RISE"
+      ? "CALL"
+      : "PUT";
+
+  state.proposal = null;
+  state.proposalId = null;
+  state.askPrice = 0;
+  state.payout = 0;
+
+  send(
+    state.socket,
+    {
+      proposal: 1,
+      amount,
+      basis: "stake",
+      contract_type: contractType,
+      currency: "USD",
+      duration,
+      duration_unit: "t",
+      symbol: state.symbol,
+      req_id: nextId()
+    }
+  );
+
+  setText(
+    ui.quoteStatus,
+    "Requesting..."
+  );
+
+  setText(
+    ui.askPrice,
+    "--"
+  );
+
+  setText(
+    ui.payout,
+    "--"
+  );
+
+  updateBuyButton();
+  }
 
   function handleProposal(proposal) {
   
