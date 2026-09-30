@@ -1041,112 +1041,110 @@ req_id: nextId()
      EXECUTE BUY
   ======================================================= */
 
-  async function executeBuy() {
-    if (
-      !state.connected ||
-      !state.tradingEnabled ||
-      !state.proposal ||
-      !state.direction
-    ) {
-      setText(
-        ui.tradeMessage,
-        "Trading is not ready."
-      );
-
-      return;
-    }
-
-    const proposalId =
-      state.proposal.id;
-
-    const askPrice =
-      Number(
-        state.proposal.ask_price
-      );
-
-    if (!proposalId) {
-      setText(
-        ui.tradeMessage,
-        "Proposal ID is missing."
-      );
-
-      return;
-    }
-
-    if (
-      !Number.isFinite(askPrice) ||
-      askPrice <= 0
-    ) {
-      setText(
-        ui.tradeMessage,
-        "Invalid proposal price."
-      );
-
-      return;
-    }
-
+    async function executeBuy() {
+  if (
+    !state.connected ||
+    !state.tradingEnabled ||
+    !state.proposal ||
+    !state.direction
+  ) {
     setText(
       ui.tradeMessage,
-      "Connecting trading account..."
+      "Trading is not ready."
     );
 
-    if (
-      !state.tradingSocket ||
-      state.tradingSocket.readyState !==
-        WebSocket.OPEN
-    ) {
-      const connected =
-        await connectTradingSocket();
+    return;
+  }
 
-      if (!connected) {
-        return;
-      }
+  const proposalId =
+    state.proposal.id;
 
-      const opened =
-        await waitForSocketOpen(
-          state.tradingSocket
-        );
+  const askPrice =
+    Number(
+      state.proposal.ask_price
+    );
 
-      if (!opened) {
-        setText(
-          ui.tradeMessage,
-          "Trading connection timed out."
-        );
-
-        return;
-      }
-    }
-
+  if (!proposalId) {
     setText(
       ui.tradeMessage,
-      "Placing trade..."
+      "Proposal ID is missing."
     );
 
-    const sent =
-      send(
-        state.tradingSocket,
-        {
-          buy: String(proposalId),
-          price: askPrice,
-          req_id: nextId()
-        }
-      );
+    return;
+  }
 
-    if (!sent) {
-      setText(
-        ui.tradeMessage,
-        "Trading connection is not ready."
-      );
+  if (
+    !Number.isFinite(askPrice) ||
+    askPrice <= 0
+  ) {
+    setText(
+      ui.tradeMessage,
+      "Invalid proposal price."
+    );
 
+    return;
+  }
+
+  setText(
+    ui.tradeMessage,
+    "Connecting trading account..."
+  );
+
+  if (
+    !state.tradingSocket ||
+    state.tradingSocket.readyState !==
+      WebSocket.OPEN
+  ) {
+    const connected =
+      await connectTradingSocket();
+
+    if (!connected) {
       return;
     }
 
-    if (ui.buyBtn) {
-      ui.buyBtn.disabled = true;
+    const opened =
+      await waitForSocketOpen(
+        state.tradingSocket
+      );
+
+    if (!opened) {
+      setText(
+        ui.tradeMessage,
+        "Trading connection timed out."
+      );
+
+      return;
     }
   }
 
+  setText(
+    ui.tradeMessage,
+    "Placing trade..."
+  );
 
+  const sent =
+    send(
+      state.tradingSocket,
+      {
+        buy: String(proposalId),
+        price: askPrice,
+        req_id: nextId()
+      }
+    );
+
+  if (!sent) {
+    setText(
+      ui.tradeMessage,
+      "Trading connection is not ready."
+    );
+
+    return;
+  }
+
+  if (ui.buyBtn) {
+    ui.buyBtn.disabled = true;
+  }
+    }
   function waitForSocketOpen(socket) {
     return new Promise(resolve => {
       if (
@@ -1744,7 +1742,7 @@ req_id: nextId()
     );
 
     setText(
-      ui.accountId,
+      ui.accountId, 
       "--"
     );
 
