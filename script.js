@@ -1086,11 +1086,13 @@ async function connectTradingSocket() {
   const proposalId =
     state.proposal.id;
 
-  const askPrice =
-    Number(
-      state.proposal.ask_price
-    );
+  const proposalId =
+  state.proposalId;
 
+const askPrice =
+  Number(
+    state.askPrice
+  );
   if (!proposalId) {
     setText(
       ui.tradeMessage,
