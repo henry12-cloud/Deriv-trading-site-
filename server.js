@@ -26,7 +26,7 @@ const REDIRECT_URI =
 
 const SESSION_SECRET =
   process.env.SESSION_SECRET ||
-  "";
+  "change-this-session-secret";
 
 const ENABLE_REAL_TRADING =
   process.env.ENABLE_REAL_TRADING === "true";
@@ -55,14 +55,12 @@ app.use(
   })
 );
 
-
 app.use(
   session({
     name: "tradedollars.sid",
 
     secret:
-      SESSION_SECRET ||
-      "temporary-development-secret-change-before-launch",
+      SESSION_SECRET,
 
     resave: false,
 
@@ -117,7 +115,8 @@ function sha256Base64Url(value) {
 function requireLogin(req, res, next) {
   if (!req.session.accessToken) {
     return res.status(401).json({
-      error: "not_authenticated"
+      error:
+        "not_authenticated"
     });
   }
 
@@ -132,6 +131,17 @@ function getAccountId(req) {
     req.session.account?.account_id ||
     null
   );
+}
+
+
+function bearerHeaders(req) {
+  return {
+    Authorization:
+      `Bearer ${req.session.accessToken}`,
+
+    "Content-Type":
+      "application/json"
+  };
 }
 
 
@@ -193,14 +203,15 @@ app.get(
   (req, res) => {
     res.json({
       ok: true,
-      service: "tradedollars"
+      service:
+        "tradedollars"
     });
   }
 );
 
 
 /* =========================================================
-   FRONTEND CONFIG
+   CONFIG
 ========================================================= */
 
 app.get(
@@ -212,9 +223,6 @@ app.get(
           CLIENT_ID &&
           BASE_URL
         ),
-
-      app_id:
-        CLIENT_ID || null,
 
       real_trading_enabled:
         ENABLE_REAL_TRADING
@@ -260,7 +268,7 @@ app.get(
       saveError => {
         if (saveError) {
           console.error(
-            "Session save error:",
+            "OAuth session save error:",
             saveError
           );
 
@@ -271,7 +279,8 @@ app.get(
 
         const params =
           new URLSearchParams({
-            response_type: "code",
+            response_type:
+              "code",
 
             client_id:
               CLIENT_ID,
@@ -291,11 +300,8 @@ app.get(
               "S256"
           });
 
-        const loginUrl =
-          `${AUTH_URL}?${params.toString()}`;
-
         res.redirect(
-          loginUrl
+          `${AUTH_URL}?${params.toString()}`
         );
       }
     );
@@ -350,17 +356,15 @@ app.get(
       }
 
 
-      if (
-        !req.session.codeVerifier
-      ) {
+      const codeVerifier =
+        req.session.codeVerifier;
+
+
+      if (!codeVerifier) {
         return res.status(400).send(
           "Missing PKCE verifier."
         );
       }
-
-
-      const codeVerifier =
-        req.session.codeVerifier;
 
 
       const body =
@@ -385,7 +389,8 @@ app.get(
         await derivRequest(
           TOKEN_URL,
           {
-            method: "POST",
+            method:
+              "POST",
 
             headers: {
               "Content-Type":
@@ -398,11 +403,9 @@ app.get(
         );
 
 
-      const accessToken =
-        tokenResponse.access_token;
-
-
-      if (!accessToken) {
+      if (
+        !tokenResponse?.access_token
+      ) {
         throw new Error(
           "Deriv did not return an access token."
         );
@@ -410,12 +413,11 @@ app.get(
 
 
       req.session.accessToken =
-        accessToken;
+        tokenResponse.access_token;
 
       req.session.tokenType =
         tokenResponse.token_type ||
         "Bearer";
-
 
       req.session.tokenExpiresAt =
         tokenResponse.expires_in
@@ -478,17 +480,16 @@ app.get(
         await derivRequest(
           `${DERIV_API}/trading/v1/options/accounts`,
           {
-            method: "GET",
+            method:
+              "GET",
 
-            headers: {
-              Authorization:
-                `Bearer ${req.session.accessToken}`
-            }
+            headers:
+              bearerHeaders(req)
           }
         );
 
 
-      let accounts =
+      const accounts =
         Array.isArray(data?.data)
           ? data.data
           : [];
@@ -496,23 +497,22 @@ app.get(
 
       if (!accounts.length) {
         return res.json({
-          connected: true,
-          account: null
+          connected:
+            true,
+
+          account:
+            null
         });
       }
 
 
-      /*
-        Prefer a real account when
-        real trading is enabled.
-
-        Otherwise prefer demo.
-      */
-
-      let selectedAccount;
+      let selectedAccount =
+        null;
 
 
-      if (ENABLE_REAL_TRADING) {
+      if (
+        ENABLE_REAL_TRADING
+      ) {
         selectedAccount =
           accounts.find(
             account =>
@@ -548,27 +548,26 @@ app.get(
         accountId;
 
 
-      req.session.account =
-        {
-          id:
-            accountId,
+      req.session.account = {
+        id:
+          accountId,
 
-          balance:
-            selectedAccount.balance ??
-            null,
+        balance:
+          selectedAccount.balance ??
+          null,
 
-          currency:
-            selectedAccount.currency ||
-            "USD",
+        currency:
+          selectedAccount.currency ||
+          "USD",
 
-          account_type:
-            selectedAccount.account_type ||
-            null,
+        account_type:
+          selectedAccount.account_type ||
+          null,
 
-          status:
-            selectedAccount.status ||
-            null
-        };
+        status:
+          selectedAccount.status ||
+          null
+      };
 
 
       req.session.save(
@@ -577,7 +576,8 @@ app.get(
 
 
       res.json({
-        connected: true,
+        connected:
+          true,
 
         account:
           req.session.account
@@ -615,7 +615,163 @@ app.get(
 
 
 /* =========================================================
-   AUTHENTICATED TRADING CONNECTION
+   ACCOUNT STATUS
+========================================================= */
+
+app.get(
+  "/account-status",
+  async (req, res) => {
+    if (
+      !req.session.accessToken
+    ) {
+      return res.json({
+        connected:
+          false,
+
+        account:
+          null
+      });
+    }
+
+    try {
+      const data =
+        await derivRequest(
+          `${DERIV_API}/trading/v1/options/accounts`,
+          {
+            method:
+              "GET",
+
+            headers:
+              bearerHeaders(req)
+          }
+        );
+
+
+      const accounts =
+        Array.isArray(data?.data)
+          ? data.data
+          : [];
+
+
+      if (!accounts.length) {
+        return res.json({
+          connected:
+            true,
+
+          account:
+            null
+        });
+      }
+
+
+      let account =
+        null;
+
+
+      if (
+        req.session.accountId
+      ) {
+        account =
+          accounts.find(
+            item =>
+              (
+                item.account_id ||
+                item.id
+              ) ===
+              req.session.accountId
+          );
+      }
+
+
+      if (!account) {
+        account =
+          ENABLE_REAL_TRADING
+            ? accounts.find(
+                item =>
+                  item.account_type ===
+                  "real"
+              )
+            : accounts.find(
+                item =>
+                  item.account_type ===
+                  "demo"
+              );
+      }
+
+
+      account =
+        account ||
+        accounts[0];
+
+
+      const accountId =
+        account.account_id ||
+        account.id ||
+        null;
+
+
+      req.session.accountId =
+        accountId;
+
+
+      req.session.account = {
+        id:
+          accountId,
+
+        balance:
+          account.balance ??
+          null,
+
+        currency:
+          account.currency ||
+          "USD",
+
+        account_type:
+          account.account_type ||
+          null,
+
+        status:
+          account.status ||
+          null
+      };
+
+
+      req.session.save(
+        () => {}
+      );
+
+
+      res.json({
+        connected:
+          true,
+
+        account:
+          req.session.account
+      });
+
+    } catch (error) {
+      console.error(
+        "Account status error:",
+        error
+      );
+
+      res.status(
+        error.status || 500
+      ).json({
+        connected:
+          false,
+
+        error:
+          error.message ||
+          "Unable to check account."
+      });
+    }
+  }
+);
+
+
+/* =========================================================
+   AUTHENTICATED TRADING WEBSOCKET
 ========================================================= */
 
 app.get(
@@ -643,12 +799,11 @@ app.get(
         await derivRequest(
           url,
           {
-            method: "POST",
+            method:
+              "POST",
 
-            headers: {
-              Authorization:
-                `Bearer ${req.session.accessToken}`
-            }
+            headers:
+              bearerHeaders(req)
           }
         );
 
@@ -701,6 +856,30 @@ app.get(
 
 
 /* =========================================================
+   SESSION STATUS
+========================================================= */
+
+app.get(
+  "/api/session",
+  (req, res) => {
+    res.json({
+      authenticated:
+        Boolean(
+          req.session.accessToken
+        ),
+
+      account_id:
+        getAccountId(req),
+
+      account:
+        req.session.account ||
+        null
+    });
+  }
+);
+
+
+/* =========================================================
    LOGOUT
 ========================================================= */
 
@@ -722,11 +901,22 @@ app.post(
         }
 
         res.clearCookie(
-          "tradedollars.sid"
+          "tradedollars.sid",
+          {
+            httpOnly:
+              true,
+
+            secure:
+              true,
+
+            sameSite:
+              "lax"
+          }
         );
 
         res.json({
-          ok: true
+          ok:
+            true
         });
       }
     );
