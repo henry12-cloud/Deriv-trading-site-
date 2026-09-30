@@ -180,10 +180,7 @@
 
       state.appId =
         config.app_id || null;
-
-    state.tradingEnabled =
-  config.real_trading_enabled === true;
-
+state.tradingEnabled = true;
       if (!state.appId) {
         setText(
           ui.connectionStatus,
@@ -916,11 +913,10 @@ function handleProposal(proposal) {
     return;
   }
 
-  const ready =
-    state.connected &&
-    state.tradingEnabled &&
-    state.direction &&
-    state.proposal;
+const ready =
+  state.connected &&
+  state.direction &&
+  state.proposal;
 
   ui.buyBtn.disabled = !ready;
 
