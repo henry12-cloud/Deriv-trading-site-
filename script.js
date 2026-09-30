@@ -936,8 +936,7 @@ function handleProposal(proposal) {
   /* =======================================================
      AUTHENTICATED TRADING CONNECTION
   ======================================================= */
-
-  async function connectTradingSocket() {
+async function connectTradingSocket() {
     try {
       const response =
         await fetch(
@@ -951,6 +950,9 @@ function handleProposal(proposal) {
         await response.json();
 
       if (!response.ok) {
+        state.tradingEnabled = false;
+        updateBuyButton();
+
         setText(
           ui.tradeMessage,
           data.error ||
@@ -961,6 +963,9 @@ function handleProposal(proposal) {
       }
 
       if (!data.ws_url) {
+        state.tradingEnabled = false;
+        updateBuyButton();
+
         setText(
           ui.tradeMessage,
           "Trading connection URL missing."
@@ -975,12 +980,26 @@ function handleProposal(proposal) {
         } catch (_) {}
       }
 
+      state.tradingEnabled = false;
+      updateBuyButton();
+
       state.tradingSocket =
         new WebSocket(data.ws_url);
 
       state.tradingSocket.onopen = () => {
         console.log(
           "Authenticated Deriv connection opened."
+        );
+
+        state.tradingEnabled = true;
+
+        updateBuyButton();
+
+        setText(
+          ui.tradeMessage,
+          state.proposal && state.direction
+            ? "Ready to trade."
+            : "Trading account connected."
         );
       };
 
@@ -1007,6 +1026,10 @@ function handleProposal(proposal) {
             error
           );
 
+          state.tradingEnabled = false;
+
+          updateBuyButton();
+
           setText(
             ui.tradeMessage,
             "Trading connection error."
@@ -1017,6 +1040,10 @@ function handleProposal(proposal) {
         console.log(
           "Authenticated Deriv connection closed."
         );
+
+        state.tradingEnabled = false;
+
+        updateBuyButton();
       };
 
       return true;
@@ -1027,6 +1054,9 @@ function handleProposal(proposal) {
         error
       );
 
+      state.tradingEnabled = false;
+      updateBuyButton();
+
       setText(
         ui.tradeMessage,
         "Trading connection failed."
@@ -1034,7 +1064,8 @@ function handleProposal(proposal) {
 
       return false;
     }
-  }
+ }
+  
 
 
   /* =======================================================
