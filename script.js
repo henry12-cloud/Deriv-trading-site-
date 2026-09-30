@@ -823,9 +823,10 @@
       basis: "stake",
       contract_type: contractType,
       currency: "USD",
-      duration,
-      duration_unit: "t",
-      req_id: nextId()
+duration,
+duration_unit: "t",
+underlying_symbol: state.symbol,
+req_id: nextId()
     }
   );
 
