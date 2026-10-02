@@ -353,9 +353,27 @@
     <section class="card">
 
       <h2>Live Price Chart</h2>
-
-      <canvas id="chart"></canvas>
-
+      <div
+  id="chartContainer"
+  style="
+    width: 100%;
+    min-height: 260px;
+    display: block;
+    position: relative;
+    overflow: hidden;
+  "
+>
+  <canvas
+    id="chart"
+    width="800"
+    height="300"
+    style="
+      width: 100%;
+      height: 260px;
+      display: block;
+    "
+  ></canvas>
+        </div>
     </section>
 
 
