@@ -1358,7 +1358,7 @@ function handleTick(tick) {
     ui.livePrice,
     quote
   );
-
+updateLiveChart(quote);
 
   setText(
     ui.priceMessage,
