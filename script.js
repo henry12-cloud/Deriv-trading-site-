@@ -84,6 +84,7 @@ const state = {
 ========================================================= */
 
 const ui = {};
+state.accountType = "demo";
 
 
 function findElement(...ids) {
@@ -128,7 +129,16 @@ function cacheUI() {
     findElement(
       "balance"
     );
+   
+ui.accountType =
+  findElement(
+    "accountType"
+  );
 
+ui.accountTypeMessage =
+  findElement(
+    "accountTypeMessage"
+  );
   ui.loginBtn =
     findElement(
       "loginBtn",
@@ -3198,6 +3208,26 @@ function setDirection(direction) {
 ========================================================= */
 
 function setupInputs() {
+     if (ui.accountType) {
+    ui.accountType.addEventListener(
+      "change",
+      function () {
+
+        state.accountType =
+          ui.accountType.value;
+
+        if (
+          ui.accountTypeMessage
+        ) {
+          ui.accountTypeMessage.textContent =
+            state.accountType === "demo"
+              ? "Demo Account selected"
+              : "Real Account selected";
+        }
+
+      }
+    );
+     }
 
   if (ui.marketSelect) {
 
