@@ -3208,26 +3208,129 @@ function setDirection(direction) {
 ========================================================= */
 
 function setupInputs() {
-     if (ui.accountType) {
-    ui.accountType.addEventListener(
-      "change",
-      function () {
+
+   if (ui.accountType) {
+  ui.accountType.addEventListener(
+    "change",
+    async function () {
+
+      const selectedType =
+        ui.accountType.value;
+
+      if (
+        ui.accountTypeMessage
+      ) {
+        ui.accountTypeMessage.textContent =
+          "Switching account...";
+      }
+
+      try {
+        const response =
+          await fetch(
+            "/api/account-type",
+            {
+              method: "POST",
+
+              headers: {
+                "Content-Type":
+                  "application/json"
+              },
+
+              credentials:
+                "same-origin",
+
+              body: JSON.stringify({
+                account_type:
+                  selectedType
+              })
+            }
+          );
+
+        const data =
+          await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+            "Unable to switch account."
+          );
+        }
 
         state.accountType =
-          ui.accountType.value;
+          selectedType;
+
+        state.account =
+          data.account ||
+          null;
 
         if (
           ui.accountTypeMessage
         ) {
           ui.accountTypeMessage.textContent =
-            state.accountType === "demo"
-              ? "Demo Account selected"
-              : "Real Account selected";
+            selectedType === "demo"
+              ? "Demo Account selected ✓"
+              : "Real Account selected ✓";
         }
 
+        setText(
+          ui.accountId,
+          data.account?.id ||
+          data.account?.account_id ||
+          "--"
+        );
+
+        if (
+          data.account?.balance !==
+            null &&
+          data.account?.balance !==
+            undefined
+        ) {
+          setText(
+            ui.balance,
+            `${money(data.account.balance)} ${
+              data.account.currency ||
+              "USD"
+            }`
+          );
+        }
+
+        closeTradingSocket();
+
+        if (
+          state.loggedIn
+        ) {
+          await connectTradingSocket();
+        }
+
+      } catch (error) {
+
+        console.error(
+          "Account switch error:",
+          error
+        );
+
+        if (
+          ui.accountTypeMessage
+        ) {
+          ui.accountTypeMessage.textContent =
+            error.message ||
+            "Unable to switch account.";
+        }
+
+        /*
+          Keep Demo selected if the
+          requested account could not
+          be activated.
+        */
+
+        ui.accountType.value =
+          state.accountType ||
+          "demo";
       }
-    );
-     }
+
+    }
+  );
+             }
 
   if (ui.marketSelect) {
 
