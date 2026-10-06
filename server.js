@@ -612,7 +612,160 @@ app.get(
     }
   }
 );
+/* =========================================================
+   ACCOUNT TYPE SELECTION
+========================================================= */
 
+app.post(
+  "/api/account-type",
+  requireLogin,
+  async (req, res) => {
+    try {
+      const accountType =
+        req.body?.account_type;
+
+      if (
+        accountType !== "demo" &&
+        accountType !== "real"
+      ) {
+        return res.status(400).json({
+          error:
+            "Invalid account type."
+        });
+      }
+
+      /*
+        Real trading must remain disabled unless
+        the server environment explicitly allows it.
+      */
+
+      if (
+        accountType === "real" &&
+        !ENABLE_REAL_TRADING
+      ) {
+        return res.status(403).json({
+          error:
+            "Real trading is currently disabled."
+        });
+      }
+
+      const data =
+        await derivRequest(
+          `${DERIV_API}/trading/v1/options/accounts`,
+          {
+            method: "GET",
+
+            headers:
+              bearerHeaders(req)
+          }
+        );
+
+      const accounts =
+        Array.isArray(data?.data)
+          ? data.data
+          : [];
+
+      const account =
+        accounts.find(
+          item =>
+            item.account_type ===
+            accountType
+        );
+
+      if (!account) {
+        return res.status(404).json({
+          error:
+            `No ${accountType} account is available.`
+        });
+      }
+
+      const accountId =
+        account.account_id ||
+        account.id ||
+        null;
+
+      if (!accountId) {
+        return res.status(500).json({
+          error:
+            "Selected account has no account ID."
+        });
+      }
+
+      req.session.accountId =
+        accountId;
+
+      req.session.account = {
+        id:
+          accountId,
+
+        balance:
+          account.balance ??
+          null,
+
+        currency:
+          account.currency ||
+          "USD",
+
+        account_type:
+          account.account_type ||
+          accountType,
+
+        status:
+          account.status ||
+          null
+      };
+
+      req.session.accountType =
+        accountType;
+
+      req.session.save(
+        saveError => {
+          if (saveError) {
+            console.error(
+              "Account selection save error:",
+              saveError
+            );
+
+            return res.status(500).json({
+              error:
+                "Unable to save account selection."
+            });
+          }
+
+          res.json({
+            ok: true,
+
+            account:
+              req.session.account
+          });
+        }
+      );
+
+    } catch (error) {
+      console.error(
+        "Account selection error:",
+        error
+      );
+
+      if (
+        error.status === 401
+      ) {
+        return res.status(401).json({
+          error:
+            "Deriv authentication expired."
+        });
+      }
+
+      res.status(
+        error.status || 500
+      ).json({
+        error:
+          error.message ||
+          "Unable to select account."
+      });
+    }
+  }
+);
 
 /* =========================================================
    ACCOUNT STATUS
