@@ -208,7 +208,55 @@ button:disabled {
 #marketStatus {
   color: var(--muted);
 }
+    /* =====================================================
+       MARKET ANALYSIS
+    ===================================================== */
 
+    .analysis-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .analysis-grid > div {
+      background: #0f172a;
+      padding: 12px;
+      border-radius: 10px;
+    }
+
+    .analysis-grid span,
+    .analysis-signal span {
+      display: block;
+      color: #94a3b8;
+      font-size: 13px;
+      margin-bottom: 6px;
+    }
+
+    .analysis-grid strong,
+    .analysis-signal strong {
+      font-size: 17px;
+    }
+
+    .analysis-signal {
+      background: #0f172a;
+      padding: 14px;
+      border-radius: 10px;
+      margin-top: 12px;
+      text-align: center;
+    }
+
+    #analysisSignal {
+      display: block;
+      font-size: 24px;
+      margin-top: 4px;
+    }
+
+    @media (max-width: 600px) {
+      .analysis-grid {
+        grid-template-columns: 1fr 1fr;
+      }
+    }
 /* QUOTE */
 
 .quote {
