@@ -411,7 +411,6 @@ content="width=device-width, initial-scale=1.0"
     </button>
 
   </section>
-
 <!-- DEPOSIT --><section class="card">  <h2>💰 Deposit Funds</h2>  <p class="muted">
     Fund your Deriv account securely through Deriv.
   </p>  <div class="info-box"><span class="label">
@@ -441,6 +440,7 @@ onclick="window.open(
 DEPOSIT NOW
 
   </button></section>
+
   <!-- MARKETS -->
 
   <section class="card">
@@ -582,13 +582,74 @@ DEPOSIT NOW
       Analysis is informational only.
       It does not guarantee a winning trade.
     </p>
+<section class="card">
 
+  <h2>Digits Analysis</h2>
+
+  <p>
+    Sample:
+    <strong id="digitsSample">0 ticks</strong>
+  </p>
+
+  <p>
+    Most Frequent Digit:
+    <strong id="mostFrequentDigit">--</strong>
+  </p>
+
+  <p>
+    Least Frequent Digit:
+    <strong id="leastFrequentDigit">--</strong>
+  </p>
+
+  <p>
+    Even:
+    <strong id="evenPercentage">--</strong>
+  </p>
+
+  <p>
+    Odd:
+    <strong id="oddPercentage">--</strong>
+  </p>
+
+  <p>
+    Over 5:
+    <strong id="overFivePercentage">--</strong>
+  </p>
+
+  <p>
+    Under 5:
+    <strong id="underFivePercentage">--</strong>
+  </p>
+
+  <p>
+    Repeated Last Digit:
+    <strong id="repeatedDigit">--</strong>
+  </p>
+
+  <p>
+    Digit Bias:
+    <strong id="digitBias">WAIT</strong>
+  </p>
+
+  <p>
+    Confidence:
+    <strong id="digitConfidence">LOW</strong>
+  </p>
+
+  <p id="digitAnalysisMessage">
+    Collecting tick data...
+  </p>
+
+  <small>
+    Digits analysis is informational only. It does not guarantee
+    a winning trade or predict the next digit with certainty.
+  </small>
+
+</section>
   </section>
 
 
   <!-- TRADE -->
-
-  <section class="card">
 
   <section class="card">
 
@@ -815,4 +876,4 @@ DEPOSIT NOW
     src="/script.js"
     defer
   ></script></body>
-          </html>
+  </html>
