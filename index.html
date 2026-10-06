@@ -1,16 +1,12 @@
-<!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html><html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8"><meta
+name="viewport"
+content="width=device-width, initial-scale=1.0"
 
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  >
+«»
 
-  <title>Tradedollars</title>
-
-  <style>
+  <title>Tradedollars</title>  <style>
     * {
       box-sizing: border-box;
     }
@@ -20,6 +16,69 @@
       font-family: Arial, sans-serif;
       background: #0f172a;
       color: #f8fafc;
+    }
+
+    /* =====================================================
+       WELCOME SCREEN
+    ===================================================== */
+
+    #welcomeScreen {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      background: #0f172a;
+      padding: 20px;
+    }
+
+    .welcome-content {
+      width: 100%;
+      max-width: 500px;
+    }
+
+    .welcome-logo {
+      font-size: 42px;
+      font-weight: bold;
+      margin-bottom: 12px;
+    }
+
+    .welcome-subtitle {
+      color: #94a3b8;
+      font-size: 16px;
+      line-height: 1.5;
+      margin-bottom: 30px;
+    }
+
+    .welcome-loading {
+      width: 46px;
+      height: 46px;
+      margin: 0 auto 18px;
+      border: 4px solid #334155;
+      border-top: 4px solid #2563eb;
+      border-radius: 50%;
+      animation: welcomeSpin 1s linear infinite;
+    }
+
+    .welcome-message {
+      color: #cbd5e1;
+      font-size: 14px;
+    }
+
+    @keyframes welcomeSpin {
+      from {
+        transform: rotate(0deg);
+      }
+
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    #mainApp {
+      display: none;
     }
 
     .container {
@@ -205,394 +264,471 @@
       header h1 {
         font-size: 26px;
       }
+
+      .welcome-logo {
+        font-size: 34px;
+      }
     }
-  </style>
-</head>
-
-<body>
-
-  <div class="container">
-
-    <header>
-      <h1>Tradedollars</h1>
-
-      <p>
-        Independent Third-Party Deriv Trading Interface
-      </p>
-
-      <div
-        id="connectionStatus"
-        class="status"
-      >
-        Connecting...
-      </div>
-    </header>
-
-
-    <!-- ACCOUNT -->
-
-    <section class="card">
-
-      <h2>My Trading Account</h2>
-
-      <div class="account-grid">
-
-        <div class="account-box">
-          <span class="label">
-            Account
-          </span>
-
-          <span
-            id="accountStatus"
-            class="value"
-          >
-            Checking account...
-          </span>
-        </div>
-
-        <div class="account-box">
-          <span class="label">
-            Account ID
-          </span>
-
-          <span
-            id="accountId"
-            class="value"
-          >
-            --
-          </span>
-        </div>
-
-        <div class="account-box">
-          <span class="label">
-            Balance
-          </span>
-
-          <span
-            id="balance"
-            class="value"
-          >
-            --
-          </span>
-        </div>
-
-      </div>
-      <div style="margin-top: 15px;">
-
-  <label
-    for="accountType"
-    class="label"
-  >
-    Trading Account
-  </label>
-
-  <select id="accountType">
-
-    <option value="demo">
-      Demo Account
-    </option>
-
-    <option value="real">
-      Real Account
-    </option>
-
-  </select>
-
-  <p
-    id="accountTypeMessage"
-    class="muted"
-    style="margin-bottom: 0;"
-  >
-    Demo Account selected
-  </p>
-
-      </div>
-
-      <button id="loginBtn">
-        LOGIN WITH DERIV
-      </button>
-
-      <button
-        id="logoutBtn"
-        hidden
-      >
-        LOGOUT
-      </button>
-
-    </section>
-
-
-    <!-- MARKETS -->
-
-    <section class="card">
-
-      <h2>Available Markets</h2>
-
-      <p
-        id="marketStatus"
-        class="muted"
-      >
-        Loading markets...
-      </p>
-
-      <label for="marketSelect">
-        Choose Market
-      </label>
-
-      <select id="marketSelect">
-        <option value="">
-          Loading markets...
-        </option>
-      </select>
-
-      <p>
-        Selected Market:
-        <strong id="selectedMarket">
-          --
-        </strong>
-      </p>
-
-    </section>
-
-
-    <!-- PRICE -->
-
-    <section class="card">
-
-      <h2>Live Market Price</h2>
-
-      <div
-        id="livePrice"
-        class="price"
-      >
-        --
-      </div>
-
-      <p
-        id="priceStatus"
-        class="muted"
-      >
-        Waiting for prices...
-      </p>
-
-    </section>
-
-
-    <!-- CHART -->
-
-    <section class="card">
-
-      <h2>Live Price Chart</h2>
-      <div
-  id="chartContainer"
-  style="
-    width: 100%;
-    min-height: 260px;
-    display: block;
-    position: relative;
-    overflow: hidden;
-  "
->
-  <canvas
-    id="chart"
-    width="800"
-    height="300"
-    style="
-      width: 100%;
-      height: 260px;
-      display: block;
-    "
-  ></canvas>
-        </div>
-    </section>
-
-
-    <!-- TRADE -->
-
-    <section class="card">
-
-      <h2>Trade</h2>
-
-      <label for="amount">
-        Trade Amount (USD)
-      </label>
-
-      <input
-        id="amount"
-        type="number"
-        min="1"
-        step="0.01"
-        value="1"
-      >
-
-      <br><br>
-
-      <label for="duration">
-        Duration (Ticks)
-      </label>
-
-      <input
-        id="duration"
-        type="number"
-        min="1"
-        step="1"
-        value="5"
-      >
-
-      <div class="direction-buttons">
-
-        <button id="riseBtn">
-          RISE
-        </button>
-
-        <button id="fallBtn">
-          FALL
-        </button>
-
-      </div>
-
-      <p id="directionStatus">
-        Select RISE or FALL.
-      </p>
-
-      <div class="quote-grid">
-
-        <div class="info-box">
-          <span class="label">
-            Quote
-          </span>
-
-          <strong id="quoteStatus">
-            Waiting...
-          </strong>
-        </div>
-
-        <div class="info-box">
-          <span class="label">
-            Ask Price
-          </span>
-
-          <strong id="askPrice">
-            --
-          </strong>
-        </div>
-
-        <div class="info-box">
-          <span class="label">
-            Potential Payout
-          </span>
-
-          <strong id="payout">
-            --
-          </strong>
-        </div>
-
-      </div>
-
-      <button
-        id="buyBtn"
-        disabled
-      >
-        CONFIRM BUY
-      </button>
-
-      <p
-        id="tradeMessage"
-        class="warning"
-      >
-        Trading is disabled until the secure
-        account connection is verified.
-      </p>
-
-    </section>
-
-
-    <!-- OPEN CONTRACTS -->
-
-    <section class="card">
-
-      <h2>Open Contracts</h2>
-
-      <div id="openContracts">
-        No open contracts.
-      </div>
-
-    </section>
-
-
-    <!-- PERFORMANCE -->
-
-    <section class="card">
-
-      <h2>Trading Performance</h2>
-
-      <div class="performance-grid">
-
-        <div class="info-box">
-          <span class="label">
-            Wins
-          </span>
-
-          <strong id="wins">
-            0
-          </strong>
-        </div>
-
-        <div class="info-box">
-          <span class="label">
-            Losses
-          </span>
-
-          <strong id="losses">
-            0
-          </strong>
-        </div>
-
-        <div class="info-box">
-          <span class="label">
-            Total Profit / Loss
-          </span>
-
-          <strong id="totalProfit">
-            0.00
-          </strong>
-        </div>
-
-      </div>
-
-    </section>
-
-
-    <!-- HISTORY -->
-
-    <section class="card">
-
-      <h2>Trade History</h2>
-
-      <div id="tradeHistory">
-        No verified trade results yet.
-      </div>
-
-    </section>
-
-
-    <section class="card">
-
-      <p class="warning">
-        Tradedollars is an independent third-party
-        interface and is not an official Deriv website.
-        Trading involves financial risk.
-      </p>
-
-    </section>
-
+  </style></head><body>  <!-- =====================================================
+       WELCOME SCREEN
+  ===================================================== -->  <div id="welcomeScreen"><div class="welcome-content">
+
+  <div class="welcome-logo">
+    Welcome to Tradedollars
   </div>
 
+  <div class="welcome-subtitle">
+    Independent Third-Party Deriv Trading Interface
+  </div>
 
-  <script
+  <div class="welcome-loading"></div>
+
+  <div class="welcome-message">
+    Preparing your trading interface...
+  </div>
+
+</div>
+
+  </div>  <!-- =====================================================
+       MAIN APPLICATION
+  ===================================================== -->  <div id="mainApp"><div class="container">
+
+  <header>
+
+    <h1>Tradedollars</h1>
+
+    <p>
+      Independent Third-Party Deriv Trading Interface
+    </p>
+
+    <div
+      id="connectionStatus"
+      class="status"
+    >
+      Connecting...
+    </div>
+
+  </header>
+
+
+  <!-- ACCOUNT -->
+
+  <section class="card">
+
+    <h2>My Trading Account</h2>
+
+    <div class="account-grid">
+
+      <div class="account-box">
+
+        <span class="label">
+          Account
+        </span>
+
+        <span
+          id="accountStatus"
+          class="value"
+        >
+          Checking account...
+        </span>
+
+      </div>
+
+      <div class="account-box">
+
+        <span class="label">
+          Account ID
+        </span>
+
+        <span
+          id="accountId"
+          class="value"
+        >
+          --
+        </span>
+
+      </div>
+
+      <div class="account-box">
+
+        <span class="label">
+          Balance
+        </span>
+
+        <span
+          id="balance"
+          class="value"
+        >
+          --
+        </span>
+
+      </div>
+
+    </div>
+
+
+    <div style="margin-top: 15px;">
+
+      <label
+        for="accountType"
+        class="label"
+      >
+        Trading Account
+      </label>
+
+      <select id="accountType">
+
+        <option value="demo">
+          Demo Account
+        </option>
+
+        <option value="real">
+          Real Account
+        </option>
+
+      </select>
+
+      <p
+        id="accountTypeMessage"
+        class="muted"
+        style="margin-bottom: 0;"
+      >
+        Demo Account selected
+      </p>
+
+    </div>
+
+
+    <button id="loginBtn">
+      LOGIN WITH DERIV
+    </button>
+
+    <button
+      id="logoutBtn"
+      hidden
+    >
+      LOGOUT
+    </button>
+
+  </section>
+
+
+  <!-- MARKETS -->
+
+  <section class="card">
+
+    <h2>Available Markets</h2>
+
+    <p
+      id="marketStatus"
+      class="muted"
+    >
+      Loading markets...
+    </p>
+
+    <label for="marketSelect">
+      Choose Market
+    </label>
+
+    <select id="marketSelect">
+
+      <option value="">
+        Loading markets...
+      </option>
+
+    </select>
+
+    <p>
+      Selected Market:
+      <strong id="selectedMarket">
+        --
+      </strong>
+    </p>
+
+  </section>
+
+
+  <!-- PRICE -->
+
+  <section class="card">
+
+    <h2>Live Market Price</h2>
+
+    <div
+      id="livePrice"
+      class="price"
+    >
+      --
+    </div>
+
+    <p
+      id="priceStatus"
+      class="muted"
+    >
+      Waiting for prices...
+    </p>
+
+  </section>
+
+
+  <!-- CHART -->
+
+  <section class="card">
+
+    <h2>Live Price Chart</h2>
+
+    <div
+      id="chartContainer"
+      style="
+        width: 100%;
+        min-height: 260px;
+        display: block;
+        position: relative;
+        overflow: hidden;
+      "
+    >
+
+      <canvas
+        id="chart"
+        width="800"
+        height="300"
+        style="
+          width: 100%;
+          height: 260px;
+          display: block;
+        "
+      ></canvas>
+
+    </div>
+
+  </section>
+
+
+  <!-- TRADE -->
+
+  <section class="card">
+
+    <h2>Trade</h2>
+
+    <label for="amount">
+      Trade Amount (USD)
+    </label>
+
+    <input
+      id="amount"
+      type="number"
+      min="1"
+      step="0.01"
+      value="1"
+    >
+
+    <br><br>
+
+    <label for="duration">
+      Duration (Ticks)
+    </label>
+
+    <input
+      id="duration"
+      type="number"
+      min="1"
+      step="1"
+      value="5"
+    >
+
+    <div class="direction-buttons">
+
+      <button id="riseBtn">
+        RISE
+      </button>
+
+      <button id="fallBtn">
+        FALL
+      </button>
+
+    </div>
+
+    <p id="directionStatus">
+      Select RISE or FALL.
+    </p>
+
+    <div class="quote-grid">
+
+      <div class="info-box">
+
+        <span class="label">
+          Quote
+        </span>
+
+        <strong id="quoteStatus">
+          Waiting...
+        </strong>
+
+      </div>
+
+      <div class="info-box">
+
+        <span class="label">
+          Ask Price
+        </span>
+
+        <strong id="askPrice">
+          --
+        </strong>
+
+      </div>
+
+      <div class="info-box">
+
+        <span class="label">
+          Potential Payout
+        </span>
+
+        <strong id="payout">
+          --
+        </strong>
+
+      </div>
+
+    </div>
+
+    <button
+      id="buyBtn"
+      disabled
+    >
+      CONFIRM BUY
+    </button>
+
+    <p
+      id="tradeMessage"
+      class="warning"
+    >
+      Trading is disabled until the secure
+      account connection is verified.
+    </p>
+
+  </section>
+
+
+  <!-- OPEN CONTRACTS -->
+
+  <section class="card">
+
+    <h2>Open Contracts</h2>
+
+    <div id="openContracts">
+      No open contracts.
+    </div>
+
+  </section>
+
+
+  <!-- PERFORMANCE -->
+
+  <section class="card">
+
+    <h2>Trading Performance</h2>
+
+    <div class="performance-grid">
+
+      <div class="info-box">
+
+        <span class="label">
+          Wins
+        </span>
+
+        <strong id="wins">
+          0
+        </strong>
+
+      </div>
+
+      <div class="info-box">
+
+        <span class="label">
+          Losses
+        </span>
+
+        <strong id="losses">
+          0
+        </strong>
+
+      </div>
+
+      <div class="info-box">
+
+        <span class="label">
+          Total Profit / Loss
+        </span>
+
+        <strong id="totalProfit">
+          0.00
+        </strong>
+
+      </div>
+
+    </div>
+
+  </section>
+
+
+  <!-- HISTORY -->
+
+  <section class="card">
+
+    <h2>Trade History</h2>
+
+    <div id="tradeHistory">
+      No verified trade results yet.
+    </div>
+
+  </section>
+
+
+  <!-- DISCLAIMER -->
+
+  <section class="card">
+
+    <p class="warning">
+
+      Tradedollars is an independent third-party
+      interface and is not an official Deriv website.
+      Trading involves financial risk.
+
+    </p>
+
+  </section>
+
+</div>
+
+  </div>  <!-- =====================================================
+       WELCOME SCREEN SCRIPT
+  ===================================================== -->  <script>
+
+    window.addEventListener("load", function () {
+
+      setTimeout(function () {
+
+        const welcome =
+          document.getElementById("welcomeScreen");
+
+        const mainApp =
+          document.getElementById("mainApp");
+
+        if (welcome) {
+          welcome.style.display = "none";
+        }
+
+        if (mainApp) {
+          mainApp.style.display = "block";
+        }
+
+      }, 1800);
+
+    });
+
+  </script>  <script
     src="/script.js"
     defer
-  ></script>
-
-</body>
-  </html>
+  ></script></body>
+          </html>
