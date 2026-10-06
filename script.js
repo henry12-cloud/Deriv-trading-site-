@@ -171,106 +171,13 @@ function cacheUI() {
    LIVE PRICE CHART
 ========================================================= */
 
-ui.liveChart =
-  findElement(
-    "liveChart",
-    "live-price-chart",
-    "priceChart",
-    "chart"
-  );
-
-state.priceHistory = [];
-
-function updateLiveChart(price) {
-  if (!ui.liveChart || !price) {
-    return;
-  }
-
-  state.priceHistory.push({
-    time: new Date().toLocaleTimeString(),
-    price: Number(price)
-  });
-
-  if (state.priceHistory.length > 50) {
-    state.priceHistory.shift();
-  }
-
-  const canvas = ui.liveChart;
-
-  if (!canvas.getContext) {
-    return;
-  }
-
-  const ctx = canvas.getContext("2d");
-
-  const width = canvas.width =
-    canvas.clientWidth || 600;
-
-  const height = canvas.height =
-    canvas.clientHeight || 260;
-
-  ctx.clearRect(
-    0,
-    0,
-    width,
-    height
-  );
-
-  if (state.priceHistory.length < 2) {
-    return;
-  }
-
-  const prices =
-    state.priceHistory.map(
-      item => item.price
+  ui.liveChart =
+    findElement(
+      "liveChart",
+      "live-price-chart",
+      "priceChart",
+      "chart"
     );
-
-  const min =
-    Math.min(...prices);
-
-  const max =
-    Math.max(...prices);
-
-  const range =
-    max - min || 1;
-
-  const padding = 25;
-
-  ctx.beginPath();
-
-  state.priceHistory.forEach(
-    (item, index) => {
-
-      const x =
-        padding +
-        (
-          index /
-          (state.priceHistory.length - 1)
-        ) *
-        (width - padding * 2);
-
-      const y =
-        height -
-        padding -
-        (
-          (item.price - min) /
-          range
-        ) *
-        (height - padding * 2);
-
-      if (index === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    }
-  );
-
-  ctx.strokeStyle = "#2196f3";
-  ctx.lineWidth = 2;
-
-  ctx.stroke();
-}
   ui.priceMessage =
     findElement(
       "priceMessage",
@@ -376,7 +283,145 @@ function updateLiveChart(price) {
 
 }
 
+/* =========================================================
+   LIVE PRICE CHART
+========================================================= */
 
+state.priceHistory = [];
+
+function updateLiveChart(price) {
+  if (
+    !ui.liveChart ||
+    !Number.isFinite(Number(price))
+  ) {
+    return;
+  }
+
+  const canvas =
+    ui.liveChart;
+
+  if (!canvas.getContext) {
+    return;
+  }
+
+  state.priceHistory.push({
+    time: new Date().toLocaleTimeString(),
+    price: Number(price)
+  });
+
+  if (state.priceHistory.length > 50) {
+    state.priceHistory.shift();
+  }
+
+  const rect =
+    canvas.getBoundingClientRect();
+
+  const width =
+    Math.max(
+      Math.floor(rect.width),
+      300
+    );
+
+  const height =
+    Math.max(
+      Math.floor(rect.height),
+      260
+    );
+
+  const dpr =
+    window.devicePixelRatio || 1;
+
+  canvas.width =
+    width * dpr;
+
+  canvas.height =
+    height * dpr;
+
+  const ctx =
+    canvas.getContext("2d");
+
+  ctx.setTransform(
+    dpr,
+    0,
+    0,
+    dpr,
+    0,
+    0
+  );
+
+  ctx.clearRect(
+    0,
+    0,
+    width,
+    height
+  );
+
+  if (state.priceHistory.length < 2) {
+    return;
+  }
+
+  const prices =
+    state.priceHistory.map(
+      item => item.price
+    );
+
+  const min =
+    Math.min(...prices);
+
+  const max =
+    Math.max(...prices);
+
+  const range =
+    max - min || 1;
+
+  const padding = 25;
+
+  ctx.beginPath();
+
+  state.priceHistory.forEach(
+    function (item, index) {
+
+      const x =
+        padding +
+        (
+          index /
+          (state.priceHistory.length - 1)
+        ) *
+        (
+          width -
+          padding * 2
+        );
+
+      const y =
+        height -
+        padding -
+        (
+          (
+            item.price -
+            min
+          ) /
+          range
+        ) *
+        (
+          height -
+          padding * 2
+        );
+
+      if (index === 0) {
+        ctx.moveTo(x, y);
+      } else {
+        ctx.lineTo(x, y);
+      }
+    }
+  );
+
+  ctx.strokeStyle =
+    "#2196f3";
+
+  ctx.lineWidth = 2;
+
+  ctx.stroke();
+     }
 /* =========================================================
    TEXT / DISPLAY
 ========================================================= */
