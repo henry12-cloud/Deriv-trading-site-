@@ -129,8 +129,8 @@ function cacheUI() {
     findElement(
       "balance"
     );
-   
-ui.accountType =
+
+  ui.accountType =
   findElement(
     "accountType"
   );
@@ -139,6 +139,7 @@ ui.accountTypeMessage =
   findElement(
     "accountTypeMessage"
   );
+
   ui.loginBtn =
     findElement(
       "loginBtn",
@@ -177,7 +178,7 @@ ui.accountTypeMessage =
       "live-price",
       "price"
     );
-/* =========================================================
+  /* =========================================================
    LIVE PRICE CHART
 ========================================================= */
 
@@ -292,12 +293,249 @@ ui.accountTypeMessage =
     );
 
 }
-
 /* =========================================================
    LIVE PRICE CHART
 ========================================================= */
 
 state.priceHistory = [];
+// =====================================================
+// DIGITS ANALYSIS
+// =====================================================
+
+state.digitHistory = [];
+
+function updateDigitsAnalysis(price) {
+  const numericPrice = Number(price);
+
+  if (!Number.isFinite(numericPrice)) {
+    return;
+  }
+
+  // Extract the final digit from the displayed price
+  const priceString = numericPrice.toFixed(2);
+  const digitsOnly = priceString.replace(/\D/g, "");
+
+  if (!digitsOnly.length) {
+    return;
+  }
+
+  const lastDigit =
+    Number(digitsOnly.charAt(digitsOnly.length - 1));
+
+  if (!Number.isInteger(lastDigit)) {
+    return;
+  }
+
+  state.digitHistory.push(lastDigit);
+
+  // Keep the most recent 200 ticks
+  if (state.digitHistory.length > 200) {
+    state.digitHistory.shift();
+  }
+
+  const history = state.digitHistory;
+  const total = history.length;
+
+  if (total === 0) {
+    return;
+  }
+
+  const counts = Array(10).fill(0);
+
+  history.forEach(function (digit) {
+    counts[digit]++;
+  });
+
+  let mostFrequent = 0;
+  let leastFrequent = 0;
+
+  for (let i = 1; i < 10; i++) {
+    if (counts[i] > counts[mostFrequent]) {
+      mostFrequent = i;
+    }
+
+    if (counts[i] < counts[leastFrequent]) {
+      leastFrequent = i;
+    }
+  }
+
+  const evenCount =
+    history.filter(function (digit) {
+      return digit % 2 === 0;
+    }).length;
+
+  const oddCount = total - evenCount;
+
+  const overFiveCount =
+    history.filter(function (digit) {
+      return digit > 5;
+    }).length;
+
+  const underFiveCount =
+    history.filter(function (digit) {
+      return digit < 5;
+    }).length;
+
+  const last =
+    history[history.length - 1];
+
+  const previous =
+    history.length > 1
+      ? history[history.length - 2]
+      : null;
+
+  const repeated =
+    previous !== null &&
+    last === previous;
+
+  const evenPercentage =
+    ((evenCount / total) * 100).toFixed(1);
+
+  const oddPercentage =
+    ((oddCount / total) * 100).toFixed(1);
+
+  const overFivePercentage =
+    ((overFiveCount / total) * 100).toFixed(1);
+
+  const underFivePercentage =
+    ((underFiveCount / total) * 100).toFixed(1);
+
+  const mostFrequency =
+    ((counts[mostFrequent] / total) * 100).toFixed(1);
+
+  const leastFrequency =
+    ((counts[leastFrequent] / total) * 100).toFixed(1);
+
+  let bias = "WAIT";
+  let confidence = "LOW";
+  let message =
+    "Collecting more tick data...";
+
+  if (total >= 50) {
+
+    const difference =
+      Math.abs(
+        evenCount - oddCount
+      ) / total;
+
+    if (difference >= 0.10) {
+
+      bias =
+        evenCount > oddCount
+          ? "EVEN BIAS"
+          : "ODD BIAS";
+
+      confidence =
+        difference >= 0.18
+          ? "MEDIUM"
+          : "LOW";
+
+      message =
+        "A short-term digit imbalance has been detected. Wait for confirmation.";
+
+    } else {
+
+      bias = "NEUTRAL";
+      confidence = "LOW";
+
+      message =
+        "Digit distribution is relatively balanced. Wait for confirmation.";
+    }
+  }
+
+  const sampleElement =
+    document.getElementById("digitsSample");
+
+  const mostElement =
+    document.getElementById("mostFrequentDigit");
+
+  const leastElement =
+    document.getElementById("leastFrequentDigit");
+
+  const evenElement =
+    document.getElementById("evenPercentage");
+
+  const oddElement =
+    document.getElementById("oddPercentage");
+
+  const overFiveElement =
+    document.getElementById("overFivePercentage");
+
+  const underFiveElement =
+    document.getElementById("underFivePercentage");
+
+  const repeatedElement =
+    document.getElementById("repeatedDigit");
+
+  const biasElement =
+    document.getElementById("digitBias");
+
+  const confidenceElement =
+    document.getElementById("digitConfidence");
+
+  const messageElement =
+    document.getElementById("digitAnalysisMessage");
+
+  if (sampleElement) {
+    sampleElement.textContent =
+      total + " ticks";
+  }
+
+  if (mostElement) {
+    mostElement.textContent =
+      mostFrequent +
+      " (" +
+      mostFrequency +
+      "%)";
+  }
+
+  if (leastElement) {
+    leastElement.textContent =
+      leastFrequent +
+      " (" +
+      leastFrequency +
+      "%)";
+  }
+
+  if (evenElement) {
+    evenElement.textContent =
+      evenPercentage + "%";
+  }
+
+  if (oddElement) {
+    oddElement.textContent =
+      oddPercentage + "%";
+  }
+
+  if (overFiveElement) {
+    overFiveElement.textContent =
+      overFivePercentage + "%";
+  }
+
+  if (underFiveElement) {
+    underFiveElement.textContent =
+      underFivePercentage + "%";
+  }
+
+  if (repeatedElement) {
+    repeatedElement.textContent =
+      repeated ? "YES" : "NO";
+  }
+
+  if (biasElement) {
+    biasElement.textContent = bias;
+  }
+
+  if (confidenceElement) {
+    confidenceElement.textContent =
+      confidence;
+  }
+
+  if (messageElement) {
+    messageElement.textContent =
+      message;
+  }
+}
 
 function updateLiveChart(price) {
   if (
@@ -314,11 +552,14 @@ function updateLiveChart(price) {
     return;
   }
 
-  state.priceHistory.push({
-    time: new Date().toLocaleTimeString(),
-    price: Number(price)
-  });
-  updateMarketAnalysis(price);
+state.priceHistory.push({
+  time: new Date().toLocaleTimeString(),
+  price: Number(price)
+});
+
+updateMarketAnalysis(price);
+updateDigitsAnalysis(price);
+
   if (state.priceHistory.length > 50) {
     state.priceHistory.shift();
   }
@@ -431,7 +672,7 @@ function updateLiveChart(price) {
   ctx.lineWidth = 2;
 
   ctx.stroke();
-     }
+}
 /* =========================================================
    MARKET ANALYSIS
 ========================================================= */
@@ -656,7 +897,7 @@ function updateAnalysisDisplay(
     reasonEl.textContent =
       reason;
   }
-     }
+}
 /* =========================================================
    TEXT / DISPLAY
 ========================================================= */
@@ -1260,8 +1501,6 @@ function requestMarkets() {
   );
 
 }
-
-
 /* =========================================================
    HANDLE PUBLIC MESSAGES
 ========================================================= */
@@ -1478,9 +1717,7 @@ function populateMarketSelect() {
       document.createElement(
         "option"
       );
-
-
-    option.value =
+option.value =
       market.symbol;
 
 
@@ -1594,7 +1831,7 @@ function subscribeToPrice() {
 
 function handleTick(tick) {
 
-  if (!tick) {
+    if (!tick) {
     return;
   }
 
@@ -1917,7 +2154,8 @@ function openTradingSocket(url) {
 
         };
 
-          socket.onclose =
+
+      socket.onclose =
         function () {
 
           state.tradingSocketReady =
@@ -2037,8 +2275,7 @@ function handleTradingMessage(raw) {
       handleProposal(
         data.proposal
       );
-
-      break;
+           break;
 
 
     case "buy":
@@ -2103,7 +2340,7 @@ function handleBalance(balance) {
       `${money(value)} ${balance.currency || "USD"}`
     );
 
-  
+
     if (state.account) {
       state.account.balance =
         value;
@@ -2115,7 +2352,7 @@ function handleBalance(balance) {
 
     }
 
-  }
+  } 
 
 }
 
@@ -2139,8 +2376,8 @@ function requestQuote() {
 
   state.askPrice =
     0;
-
-  state.payout =
+     
+    state.payout =
     0;
 
 
@@ -2254,9 +2491,8 @@ function requestQuote() {
             "Quote timed out. Try again."
           );
 
-        }
-
-      },
+     }
+             },
       10000
     );
 
@@ -2405,8 +2641,7 @@ function disableBuy(message) {
 
 
   if (message) {
-
-    setTradeMessage(
+setTradeMessage(
       message
     );
 
@@ -2503,8 +2738,7 @@ async function executeBuy() {
 
     return;
 
-  }
-
+       }
 const amount =
     getAmount();
 
@@ -2533,19 +2767,12 @@ const amount =
     );
 
 
-  if (!confirmed) {
+ if (!confirmed) {
+  showStatus("Trade cancelled.");
+  return;
+}
 
-    setTradeMessage(
-      "Trade cancelled."
-    );
-
-    return;
-
-  }
-
-
-  ui.buyBtn.disabled =
-    true;
+ui.buyBtn.disabled = true;
 
   ui.buyBtn.textContent =
     "BUYING...";
@@ -2643,7 +2870,8 @@ function handleBuy(buy) {
     enableBuy();
 
     return;
-    }
+
+  }
 
 
   const contract = {
@@ -2678,7 +2906,6 @@ function handleBuy(buy) {
 
     start_time:
       Date.now()
-
   };
 
 
@@ -2799,7 +3026,7 @@ function handleOpenContract(contract) {
 
     local = {
 
-      contract_id:
+     contract_id:
         contractId,
 
       symbol:
@@ -2922,8 +3149,9 @@ function handleOpenContract(contract) {
 
     renderOpenContracts();
 
-        }
   }
+
+}
 
 
 /* =========================================================
@@ -2986,7 +3214,7 @@ function finishContract(contract) {
   }
 
 
-  state.finishedContracts.set(
+   state.finishedContracts.set(
     id,
     contract
   );
@@ -3056,7 +3284,8 @@ function finishContract(contract) {
     setTradeMessage(
       `Trade finished. Result ${money(profit)} USD`
     );
-      }
+
+  }
 
 
   requestTradingBalance();
@@ -3277,7 +3506,7 @@ function renderTradeHistory() {
       contract.symbol_name ||
       contract.symbol ||
       "Contract";
-
+     
 
     const details =
       document.createElement(
@@ -3433,8 +3662,8 @@ function setDirection(direction) {
 ========================================================= */
 
 function setupInputs() {
-
-   if (ui.accountType) {
+  
+if (ui.accountType) {
   ui.accountType.addEventListener(
     "change",
     async function () {
@@ -3555,7 +3784,7 @@ function setupInputs() {
 
     }
   );
-             }
+}
 
   if (ui.marketSelect) {
 
@@ -3579,9 +3808,9 @@ function setupInputs() {
 
         }
 
-      }
-      
-  );
+              }
+
+    );
 
   }
 
@@ -3678,12 +3907,13 @@ function setupInputs() {
   }
 
 
+  
   if (ui.logoutBtn) {
 
     ui.logoutBtn.addEventListener(
       "click",
       logout
-          );
+    );
 
   }
 
@@ -3806,7 +4036,9 @@ async function initialize() {
 
 
     await loadAccount();
-            connectPublicSocket();
+
+
+    connectPublicSocket();
 
 
     await connectTradingSocket();
