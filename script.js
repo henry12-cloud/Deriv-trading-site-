@@ -433,6 +433,231 @@ function updateLiveChart(price) {
   ctx.stroke();
      }
 /* =========================================================
+   MARKET ANALYSIS
+========================================================= */
+
+function updateMarketAnalysis(price) {
+
+  const value = Number(price);
+
+  if (!Number.isFinite(value)) {
+    return;
+  }
+
+  const history =
+    Array.isArray(state.priceHistory)
+      ? state.priceHistory
+      : [];
+
+  if (history.length < 10) {
+
+    updateAnalysisDisplay(
+      "WAITING",
+      "WAITING",
+      "--",
+      "--",
+      "Collecting more live price data.",
+      "WAIT"
+    );
+
+    return;
+  }
+
+  const prices =
+    history.map(
+      item => Number(item.price)
+    ).filter(
+      Number.isFinite
+    );
+
+  if (prices.length < 10) {
+    return;
+  }
+
+  const recent =
+    prices.slice(-5);
+
+  const previous =
+    prices.slice(-10, -5);
+
+  const recentAverage =
+    recent.reduce(
+      (total, number) =>
+        total + number,
+      0
+    ) / recent.length;
+
+  const previousAverage =
+    previous.reduce(
+      (total, number) =>
+        total + number,
+      0
+    ) / previous.length;
+
+  let trend = "NEUTRAL";
+
+  if (
+    recentAverage >
+    previousAverage
+  ) {
+    trend = "BULLISH";
+  }
+
+  if (
+    recentAverage <
+    previousAverage
+  ) {
+    trend = "BEARISH";
+  }
+
+  const movement =
+    Math.abs(
+      recentAverage -
+      previousAverage
+    );
+
+  const reference =
+    Math.max(
+      Math.abs(previousAverage),
+      1
+    );
+
+  const percentageMove =
+    (
+      movement /
+      reference
+    ) * 100;
+
+  let momentum = "WEAK";
+
+  if (percentageMove >= 0.05) {
+    momentum = "MODERATE";
+  }
+
+  if (percentageMove >= 0.15) {
+    momentum = "STRONG";
+  }
+
+  const support =
+    Math.min(...prices);
+
+  const resistance =
+    Math.max(...prices);
+
+  let signal = "WAIT";
+
+  if (
+    trend === "BULLISH" &&
+    momentum !== "WEAK"
+  ) {
+    signal = "RISE";
+  }
+
+  if (
+    trend === "BEARISH" &&
+    momentum !== "WEAK"
+  ) {
+    signal = "FALL";
+  }
+
+  let reason =
+    "Market conditions are unclear. Wait for confirmation.";
+
+  if (signal === "RISE") {
+    reason =
+      "Recent prices are moving upward with increasing momentum.";
+  }
+
+  if (signal === "FALL") {
+    reason =
+      "Recent prices are moving downward with increasing momentum.";
+  }
+
+  updateAnalysisDisplay(
+    trend,
+    momentum,
+    support,
+    resistance,
+    reason,
+    signal
+  );
+}
+
+
+function updateAnalysisDisplay(
+  trend,
+  momentum,
+  support,
+  resistance,
+  reason,
+  signal
+) {
+
+  const trendEl =
+    document.getElementById(
+      "analysisTrend"
+    );
+
+  const momentumEl =
+    document.getElementById(
+      "analysisMomentum"
+    );
+
+  const supportEl =
+    document.getElementById(
+      "analysisSupport"
+    );
+
+  const resistanceEl =
+    document.getElementById(
+      "analysisResistance"
+    );
+
+  const signalEl =
+    document.getElementById(
+      "analysisSignal"
+    );
+
+  const reasonEl =
+    document.getElementById(
+      "analysisReason"
+    );
+
+  if (trendEl) {
+    trendEl.textContent =
+      trend;
+  }
+
+  if (momentumEl) {
+    momentumEl.textContent =
+      momentum;
+  }
+
+  if (supportEl) {
+    supportEl.textContent =
+      support === "--"
+        ? "--"
+        : Number(support).toFixed(2);
+  }
+
+  if (resistanceEl) {
+    resistanceEl.textContent =
+      resistance === "--"
+        ? "--"
+        : Number(resistance).toFixed(2);
+  }
+
+  if (signalEl) {
+    signalEl.textContent =
+      signal || "WAIT";
+  }
+
+  if (reasonEl) {
+    reasonEl.textContent =
+      reason;
+  }
+     }
+/* =========================================================
    TEXT / DISPLAY
 ========================================================= */
 
