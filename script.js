@@ -318,7 +318,7 @@ function updateLiveChart(price) {
     time: new Date().toLocaleTimeString(),
     price: Number(price)
   });
-
+  updateMarketAnalysis(price);
   if (state.priceHistory.length > 50) {
     state.priceHistory.shift();
   }
