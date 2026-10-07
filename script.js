@@ -676,7 +676,6 @@ updateDigitsAnalysis(price);
 /* =========================================================
    MARKET ANALYSIS
 ========================================================= */
-
 function updateMarketAnalysis(price) {
 
   const value = Number(price);
@@ -705,15 +704,17 @@ function updateMarketAnalysis(price) {
   }
 
   const prices =
-    history.map(
-      item => Number(item.price)
-    ).filter(
-      Number.isFinite
-    );
+    history
+      .map(item => Number(item.price))
+      .filter(Number.isFinite);
 
   if (prices.length < 10) {
     return;
   }
+
+  /* =======================================================
+     TREND
+  ======================================================= */
 
   const recent =
     prices.slice(-5);
@@ -737,19 +738,17 @@ function updateMarketAnalysis(price) {
 
   let trend = "NEUTRAL";
 
-  if (
-    recentAverage >
-    previousAverage
-  ) {
+  if (recentAverage > previousAverage) {
     trend = "BULLISH";
   }
 
-  if (
-    recentAverage <
-    previousAverage
-  ) {
+  if (recentAverage < previousAverage) {
     trend = "BEARISH";
   }
+
+  /* =======================================================
+     MOMENTUM
+  ======================================================= */
 
   const movement =
     Math.abs(
@@ -779,11 +778,23 @@ function updateMarketAnalysis(price) {
     momentum = "STRONG";
   }
 
+  /* =======================================================
+     SUPPORT / RESISTANCE
+     Use only the latest 20 prices.
+  ======================================================= */
+
+  const structurePrices =
+    prices.slice(-20);
+
   const support =
-    Math.min(...prices);
+    Math.min(...structurePrices);
 
   const resistance =
-    Math.max(...prices);
+    Math.max(...structurePrices);
+
+  /* =======================================================
+     SIGNAL
+  ======================================================= */
 
   let signal = "WAIT";
 
@@ -801,18 +812,39 @@ function updateMarketAnalysis(price) {
     signal = "FALL";
   }
 
+  /* =======================================================
+     REASON
+  ======================================================= */
+
   let reason =
     "Market conditions are unclear. Wait for confirmation.";
 
   if (signal === "RISE") {
+
     reason =
       "Recent prices are moving upward with increasing momentum.";
   }
 
   if (signal === "FALL") {
+
     reason =
       "Recent prices are moving downward with increasing momentum.";
   }
+
+  if (
+    trend === "NEUTRAL" ||
+    momentum === "WEAK"
+  ) {
+
+    signal = "WAIT";
+
+    reason =
+      "Trend or momentum is too weak. Wait for stronger confirmation.";
+  }
+
+  /* =======================================================
+     UPDATE DISPLAY
+  ======================================================= */
 
   updateAnalysisDisplay(
     trend,
@@ -822,8 +854,7 @@ function updateMarketAnalysis(price) {
     reason,
     signal
   );
-}
-
+                 }
 
 function updateAnalysisDisplay(
   trend,
