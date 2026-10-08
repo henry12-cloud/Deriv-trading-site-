@@ -673,9 +673,12 @@ updateDigitsAnalysis(price);
 
   ctx.stroke();
 }
+
 /* =========================================================
    MARKET ANALYSIS
+   CONFIRMATION-BASED STRATEGY
 ========================================================= */
+
 function updateMarketAnalysis(price) {
 
   const value = Number(price);
@@ -689,14 +692,20 @@ function updateMarketAnalysis(price) {
       ? state.priceHistory
       : [];
 
-  if (history.length < 10) {
+  /*
+    We require 20 ticks before making a directional decision.
+    This prevents the dashboard from reacting too quickly
+    to a small number of price movements.
+  */
+
+  if (history.length < 20) {
 
     updateAnalysisDisplay(
       "WAITING",
       "WAITING",
       "--",
       "--",
-      "Collecting more live price data.",
+      "Collecting more live price data before generating a signal.",
       "WAIT"
     );
 
@@ -708,83 +717,98 @@ function updateMarketAnalysis(price) {
       .map(item => Number(item.price))
       .filter(Number.isFinite);
 
-  if (prices.length < 10) {
+  if (prices.length < 20) {
     return;
   }
 
+
   /* =======================================================
-     TREND
+     TIME WINDOWS
   ======================================================= */
 
-  const recent =
+  const shortTerm =
     prices.slice(-5);
 
-  const previous =
+  const previousShortTerm =
     prices.slice(-10, -5);
 
-  const recentAverage =
-    recent.reduce(
-      (total, number) =>
-        total + number,
-      0
-    ) / recent.length;
+  const mediumTerm =
+    prices.slice(-10);
 
-  const previousAverage =
-    previous.reduce(
-      (total, number) =>
-        total + number,
-      0
-    ) / previous.length;
-
-  let trend = "NEUTRAL";
-
-  if (recentAverage > previousAverage) {
-    trend = "BULLISH";
-  }
-
-  if (recentAverage < previousAverage) {
-    trend = "BEARISH";
-  }
-
-  /* =======================================================
-     MOMENTUM
-  ======================================================= */
-
-  const movement =
-    Math.abs(
-      recentAverage -
-      previousAverage
-    );
-
-  const reference =
-    Math.max(
-      Math.abs(previousAverage),
-      1
-    );
-
-  const percentageMove =
-    (
-      movement /
-      reference
-    ) * 100;
-
-  let momentum = "WEAK";
-
-  if (percentageMove >= 0.05) {
-    momentum = "MODERATE";
-  }
-
-  if (percentageMove >= 0.15) {
-    momentum = "STRONG";
-  }
-
-  /* =======================================================
-     SUPPORT / RESISTANCE
-     Use only the latest 20 prices.
-  ======================================================= */
+  const previousMediumTerm =
+    prices.slice(-20, -10);
 
   const structurePrices =
     prices.slice(-20);
+
+
+  /* =======================================================
+     AVERAGES
+  ======================================================= */
+
+  const shortAverage =
+    shortTerm.reduce(
+      (total, number) =>
+        total + number,
+      0
+    ) / shortTerm.length;
+
+  const previousShortAverage =
+    previousShortTerm.reduce(
+      (total, number) =>
+        total + number,
+      0
+    ) / previousShortTerm.length;
+
+  const mediumAverage =
+    mediumTerm.reduce(
+      (total, number) =>
+        total + number,
+      0
+    ) / mediumTerm.length;
+
+  const previousMediumAverage =
+    previousMediumTerm.reduce(
+      (total, number) =>
+        total + number,
+      0
+    ) / previousMediumTerm.length;
+
+
+  /* =======================================================
+     TREND CONFIRMATION
+  ======================================================= */
+
+  const shortChange =
+    shortAverage -
+    previousShortAverage;
+
+  const mediumChange =
+    mediumAverage -
+    previousMediumAverage;
+
+  let trend = "NEUTRAL";
+
+  if (
+    shortChange > 0 &&
+    mediumChange > 0
+  ) {
+
+    trend = "BULLISH";
+
+  } else if (
+    shortChange < 0 &&
+    mediumChange < 0
+  ) {
+
+    trend = "BEARISH";
+
+  }
+
+
+  /* =======================================================
+     SUPPORT / RESISTANCE
+  ======================================================= */
 
   const support =
     Math.min(...structurePrices);
@@ -792,58 +816,299 @@ function updateMarketAnalysis(price) {
   const resistance =
     Math.max(...structurePrices);
 
+  const structureRange =
+    resistance -
+    support;
+
+
+  /* =======================================================
+     MOMENTUM
+  ======================================================= */
+
+  const movement =
+    Math.abs(shortChange);
+
+  let normalizedMomentum = 0;
+
+  if (structureRange > 0) {
+
+    normalizedMomentum =
+      movement /
+      structureRange;
+
+  }
+
+  let momentum = "WEAK";
+
+  if (
+    normalizedMomentum >= 0.10
+  ) {
+
+    momentum = "MODERATE";
+
+  }
+
+  if (
+    normalizedMomentum >= 0.25
+  ) {
+
+    momentum = "STRONG";
+
+  }
+
+
+  /* =======================================================
+     DIRECTIONAL CONSISTENCY
+  ======================================================= */
+
+  const recentMoves = [];
+
+  for (
+    let i = prices.length - 8;
+    i < prices.length;
+    i++
+  ) {
+
+    if (i <= 0) {
+      continue;
+    }
+
+    const difference =
+      prices[i] -
+      prices[i - 1];
+
+    if (difference > 0) {
+      recentMoves.push("UP");
+    }
+
+    if (difference < 0) {
+      recentMoves.push("DOWN");
+    }
+
+  }
+
+
+  const upMoves =
+    recentMoves.filter(
+      move => move === "UP"
+    ).length;
+
+  const downMoves =
+    recentMoves.filter(
+      move => move === "DOWN"
+    ).length;
+
+  const totalMoves =
+    recentMoves.length;
+
+  let directionalConsistency = 0;
+
+  if (totalMoves > 0) {
+
+    directionalConsistency =
+      Math.max(
+        upMoves,
+        downMoves
+      ) / totalMoves;
+
+  }
+
+
+  /* =======================================================
+     SUPPORT / RESISTANCE ZONES
+  ======================================================= */
+
+  let nearSupport = false;
+  let nearResistance = false;
+
+  if (structureRange > 0) {
+
+    const distanceFromSupport =
+      value - support;
+
+    const distanceFromResistance =
+      resistance - value;
+
+    const zoneSize =
+      structureRange * 0.15;
+
+    if (
+      distanceFromSupport <= zoneSize
+    ) {
+
+      nearSupport = true;
+
+    }
+
+    if (
+      distanceFromResistance <= zoneSize
+    ) {
+
+      nearResistance = true;
+
+    }
+
+  }
+
+
   /* =======================================================
      SIGNAL
   ======================================================= */
 
   let signal = "WAIT";
 
+
+  /*
+    RISE requires:
+
+    1. Bullish short-term trend
+    2. Bullish medium-term trend
+    3. At least moderate momentum
+    4. At least 60% directional consistency
+    5. Price not too close to resistance
+  */
+
   if (
     trend === "BULLISH" &&
-    momentum !== "WEAK"
+    momentum !== "WEAK" &&
+    directionalConsistency >= 0.60 &&
+    !nearResistance
   ) {
+
     signal = "RISE";
+
   }
+
+
+  /*
+    FALL requires the opposite confirmation.
+  */
 
   if (
     trend === "BEARISH" &&
-    momentum !== "WEAK"
+    momentum !== "WEAK" &&
+    directionalConsistency >= 0.60 &&
+    !nearSupport
   ) {
+
     signal = "FALL";
+
   }
 
+  /* =======================================================
+     STRATEGY CONFIDENCE
+  ======================================================= */
+
+  let confidence = "WAIT";
+
+  if (signal !== "WAIT") {
+
+    if (
+      momentum === "STRONG" &&
+      directionalConsistency >= 0.75
+    ) {
+
+      confidence = "HIGH";
+
+    } else {
+
+      confidence = "MEDIUM";
+
+    }
+
+  }
   /* =======================================================
      REASON
   ======================================================= */
 
   let reason =
-    "Market conditions are unclear. Wait for confirmation.";
+    "Market conditions are unclear. Wait for stronger confirmation.";
+
+
+  if (
+    trend === "BULLISH" &&
+    momentum === "WEAK"
+  ) {
+
+    reason =
+      "Bullish trend detected, but momentum is too weak.";
+
+  }
+
+
+  if (
+    trend === "BEARISH" &&
+    momentum === "WEAK"
+  ) {
+
+    reason =
+      "Bearish trend detected, but momentum is too weak.";
+
+  }
+
+
+  if (
+    trend === "BULLISH" &&
+    directionalConsistency < 0.60
+  ) {
+
+    reason =
+      "Bullish movement is not consistent enough yet.";
+
+  }
+
+
+  if (
+    trend === "BEARISH" &&
+    directionalConsistency < 0.60
+  ) {
+
+    reason =
+      "Bearish movement is not consistent enough yet.";
+
+  }
+
+
+  if (
+    trend === "BULLISH" &&
+    nearResistance
+  ) {
+
+    reason =
+      "Bullish trend detected, but price is close to resistance. Wait.";
+
+  }
+
+
+  if (
+    trend === "BEARISH" &&
+    nearSupport
+  ) {
+
+    reason =
+      "Bearish trend detected, but price is close to support. Wait.";
+
+  }
+
 
   if (signal === "RISE") {
 
     reason =
-      "Recent prices are moving upward with increasing momentum.";
+      "Bullish trend, momentum and directional movement are aligned.";
+
   }
+
 
   if (signal === "FALL") {
 
     reason =
-      "Recent prices are moving downward with increasing momentum.";
+      "Bearish trend, momentum and directional movement are aligned.";
+
   }
 
-  if (
-    trend === "NEUTRAL" ||
-    momentum === "WEAK"
-  ) {
-
-    signal = "WAIT";
-
-    reason =
-      "Trend or momentum is too weak. Wait for stronger confirmation.";
-  }
 
   /* =======================================================
-     UPDATE DISPLAY
+     UPDATE DASHBOARD
   ======================================================= */
 
   updateAnalysisDisplay(
@@ -854,81 +1119,91 @@ function updateMarketAnalysis(price) {
     reason,
     signal
   );
-                 }
 
+}
 function updateAnalysisDisplay(
   trend,
   momentum,
   support,
   resistance,
   reason,
-  signal
+  signal,
+  confidence = "LOW"
 ) {
 
-  const trendEl =
-    document.getElementById(
-      "analysisTrend"
-    );
+  const trendElement =
+    document.getElementById("analysisTrend");
 
-  const momentumEl =
-    document.getElementById(
-      "analysisMomentum"
-    );
+  const momentumElement =
+    document.getElementById("analysisMomentum");
 
-  const supportEl =
-    document.getElementById(
-      "analysisSupport"
-    );
+  const supportElement =
+    document.getElementById("analysisSupport");
 
-  const resistanceEl =
-    document.getElementById(
-      "analysisResistance"
-    );
+  const resistanceElement =
+    document.getElementById("analysisResistance");
 
-  const signalEl =
-    document.getElementById(
-      "analysisSignal"
-    );
+  const signalElement =
+    document.getElementById("analysisSignal");
 
-  const reasonEl =
-    document.getElementById(
-      "analysisReason"
-    );
+  const reasonElement =
+    document.getElementById("analysisReason");
 
-  if (trendEl) {
-    trendEl.textContent =
+  const confidenceElement =
+    document.getElementById("analysisConfidence");
+
+
+  if (trendElement) {
+    trendElement.textContent =
       trend;
   }
 
-  if (momentumEl) {
-    momentumEl.textContent =
+
+  if (momentumElement) {
+    momentumElement.textContent =
       momentum;
   }
 
-  if (supportEl) {
-    supportEl.textContent =
-      support === "--"
-        ? "--"
-        : Number(support).toFixed(2);
+
+  if (supportElement) {
+
+    supportElement.textContent =
+      Number.isFinite(Number(support))
+        ? Number(support).toFixed(2)
+        : "--";
+
   }
 
-  if (resistanceEl) {
-    resistanceEl.textContent =
-      resistance === "--"
-        ? "--"
-        : Number(resistance).toFixed(2);
+
+  if (resistanceElement) {
+
+    resistanceElement.textContent =
+      Number.isFinite(Number(resistance))
+        ? Number(resistance).toFixed(2)
+        : "--";
+
   }
 
-  if (signalEl) {
-    signalEl.textContent =
-      signal || "WAIT";
+
+  if (signalElement) {
+    signalElement.textContent =
+      signal;
   }
 
-  if (reasonEl) {
-    reasonEl.textContent =
+
+  if (reasonElement) {
+    reasonElement.textContent =
       reason;
   }
-}
+
+
+  if (confidenceElement) {
+    confidenceElement.textContent =
+      confidence;
+   }
+   }
+
+
 /* =========================================================
    TEXT / DISPLAY
 ========================================================= */
@@ -1165,10 +1440,8 @@ async function loadAccount() {
 
     return false;
 
-  }
-
-
-  setAccountStatus(
+}
+   setAccountStatus(
     "Checking account..."
   );
 
@@ -1532,6 +1805,8 @@ function requestMarkets() {
   );
 
 }
+
+
 /* =========================================================
    HANDLE PUBLIC MESSAGES
 ========================================================= */
@@ -1577,7 +1852,7 @@ function handlePublicMessage(raw) {
   if (
     data.msg_type ===
     "active_symbols"
-  ) {
+     ) {
 
     handleMarkets(
       data.active_symbols ||
@@ -1719,8 +1994,7 @@ function handleMarkets(markets) {
       preferred ||
       state.markets[0]
     );
-
-  }
+     }
 
 }
 
@@ -1748,7 +2022,9 @@ function populateMarketSelect() {
       document.createElement(
         "option"
       );
-option.value =
+
+
+    option.value =
       market.symbol;
 
 
@@ -1862,7 +2138,7 @@ function subscribeToPrice() {
 
 function handleTick(tick) {
 
-    if (!tick) {
+  if (!tick) {
     return;
   }
 
@@ -1892,8 +2168,7 @@ function handleTick(tick) {
   if (
     !Number.isFinite(quote)
   ) {
-
-    return;
+     return;
 
   }
 
@@ -1986,7 +2261,7 @@ async function connectTradingSocket() {
       showLoggedOut();
 
       throw new Error(
-        "Deriv authentication expired."
+         "Deriv authentication expired."
       );
 
     }
@@ -2114,9 +2389,7 @@ function openTradingSocket(url) {
           },
           15000
         );
-
-
-      socket.onopen =
+       socket.onopen =
         function () {
 
           state.tradingSocketReady =
@@ -2258,8 +2531,7 @@ function handleTradingMessage(raw) {
 
 
   if (data.error) {
-
-    console.error(
+             console.error(
       "Trading API error:",
       data.error
     );
@@ -2306,7 +2578,8 @@ function handleTradingMessage(raw) {
       handleProposal(
         data.proposal
       );
-           break;
+
+      break;
 
 
     case "buy":
@@ -2383,7 +2656,7 @@ function handleBalance(balance) {
 
     }
 
-  } 
+  }
 
 }
 
@@ -2407,8 +2680,8 @@ function requestQuote() {
 
   state.askPrice =
     0;
-     
-    state.payout =
+
+  state.payout =
     0;
 
 
@@ -2440,8 +2713,7 @@ function requestQuote() {
     !Number.isFinite(amount) ||
     amount <= 0
   ) {
-
-    setQuoteStatus(
+     setQuoteStatus(
       "Enter a valid trade amount."
     );
 
@@ -2522,8 +2794,9 @@ function requestQuote() {
             "Quote timed out. Try again."
           );
 
-     }
-             },
+        }
+
+      },
       10000
     );
 
@@ -2672,7 +2945,8 @@ function disableBuy(message) {
 
 
   if (message) {
-setTradeMessage(
+
+    setTradeMessage(
       message
     );
 
@@ -2769,8 +3043,10 @@ async function executeBuy() {
 
     return;
 
-       }
-const amount =
+  }
+
+
+  const amount =
     getAmount();
 
 
@@ -2937,6 +3213,7 @@ function handleBuy(buy) {
 
     start_time:
       Date.now()
+
   };
 
 
@@ -2949,9 +3226,7 @@ function handleBuy(buy) {
   setTradeMessage(
     `Trade opened ✓ Contract ${contractId}`
   );
-
-
-  renderOpenContracts();
+   renderOpenContracts();
 
 
   subscribeContract(
@@ -3057,7 +3332,7 @@ function handleOpenContract(contract) {
 
     local = {
 
-     contract_id:
+      contract_id:
         contractId,
 
       symbol:
@@ -3245,7 +3520,7 @@ function finishContract(contract) {
   }
 
 
-   state.finishedContracts.set(
+  state.finishedContracts.set(
     id,
     contract
   );
@@ -3274,8 +3549,7 @@ function finishContract(contract) {
 
       state.performance.losses +=
         1;
-
-    }
+       }
 
   }
 
@@ -3403,9 +3677,7 @@ function renderOpenContracts() {
       document.createElement(
         "strong"
       );
-
-
-    title.textContent =
+     title.textContent =
       contract.symbol_name ||
       contract.symbol ||
       "Contract";
@@ -3537,7 +3809,7 @@ function renderTradeHistory() {
       contract.symbol_name ||
       contract.symbol ||
       "Contract";
-     
+
 
     const details =
       document.createElement(
@@ -3617,10 +3889,8 @@ function updatePerformance() {
     )
   );
 
-}
-
-
-/* =========================================================
+                     }
+       /* =========================================================
    TRANSACTIONS
 ========================================================= */
 
@@ -3938,10 +4208,8 @@ if (ui.accountType) {
   }
 
 
-  
   if (ui.logoutBtn) {
-
-    ui.logoutBtn.addEventListener(
+  ui.logoutBtn.addEventListener(
       "click",
       logout
     );
