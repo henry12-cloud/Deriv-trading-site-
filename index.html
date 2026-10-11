@@ -713,6 +713,37 @@ DEPOSIT NOW
       value="5"
     >
 
+    <label for="contractType">
+      Contract Type
+    </label>
+
+    <select id="contractType">
+      <option value="CALL">Rise</option>
+      <option value="PUT">Fall</option>
+      <option value="DIGITEVEN">Even</option>
+      <option value="DIGITODD">Odd</option>
+      <option value="DIGITOVER">Over</option>
+      <option value="DIGITUNDER">Under</option>
+    </select>
+
+    <div id="barrierContainer" style="display: none; margin-top: 12px;">
+      <label for="barrier">
+        Barrier Digit (0–9)
+      </label>
+
+      <select id="barrier">
+        <option value="0">0</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5" selected>5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+      </select>
+        </div>
+    
     <div class="direction-buttons">
 
       <button id="riseBtn">
