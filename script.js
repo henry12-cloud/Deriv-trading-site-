@@ -178,6 +178,17 @@ ui.accountTypeMessage =
       "live-price",
       "price"
     );
+   
+  ui.liveDigit =
+    findElement(
+      "liveDigit"
+    );
+
+  ui.liveDigitHistory =
+    findElement(
+      "liveDigitHistory"
+    );
+   
   /* =========================================================
    LIVE PRICE CHART
 ========================================================= */
@@ -2136,61 +2147,102 @@ function subscribeToPrice() {
    HANDLE TICK
 ========================================================= */
 
+function updateLiveDigit(price) {
+
+  const formattedPrice =
+    Number(price).toFixed(2);
+
+  const digits =
+    formattedPrice.replace(/\D/g, "");
+
+  const lastDigit =
+    digits.length > 0
+      ? digits[digits.length - 1]
+      : "--";
+
+  setText(
+    ui.liveDigit,
+    lastDigit
+  );
+
+  if (!Array.isArray(state.liveDigitHistory)) {
+    state.liveDigitHistory = [];
+  }
+
+  state.liveDigitHistory.push(lastDigit);
+
+  if (state.liveDigitHistory.length > 20) {
+    state.liveDigitHistory.shift();
+  }
+
+  if (ui.liveDigitHistory) {
+
+    ui.liveDigitHistory.innerHTML =
+      state.liveDigitHistory
+        .map(function(digit) {
+          return (
+            '<span style="' +
+            'display:inline-flex;' +
+            'align-items:center;' +
+            'justify-content:center;' +
+            'min-width:30px;' +
+            'height:30px;' +
+            'border-radius:6px;' +
+            'background:#263244;' +
+            'color:#ffffff;' +
+            'font-weight:bold;' +
+            'padding:0 6px;' +
+            '">' +
+            digit +
+            '</span>'
+          );
+        })
+        .join("");
+
+  }
+     }
+      
+
 function handleTick(tick) {
 
   if (!tick) {
     return;
   }
 
-
   const symbol =
     tick.underlying_symbol ||
     tick.symbol;
-
 
   if (
     symbol &&
     state.selectedSymbol &&
     symbol !== state.selectedSymbol
   ) {
-
     return;
-
   }
 
+  const quote = Number(tick.quote);
 
-  const quote =
-    Number(
-      tick.quote
-    );
-
-
-  if (
-    !Number.isFinite(quote)
-  ) {
-     return;
-
+  if (!Number.isFinite(quote)) {
+    return;
   }
 
+  state.livePrice = quote;
 
-  state.livePrice =
-    quote;
+  setText(ui.livePrice, quote);
 
+  // Update the live price chart and existing analysis
+  updateLiveChart(quote);
 
-  setText(
-    ui.livePrice,
-    quote
-  );
-updateLiveChart(quote);
+  // Update the live digit display
+  updateLiveDigit(quote);
 
   setText(
     ui.priceMessage,
     "Live price ✓"
   );
-
-}
-
-
+     }
+   
 /* =========================================================
    TRADING SOCKET
 ========================================================= */
