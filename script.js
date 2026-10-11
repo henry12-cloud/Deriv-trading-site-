@@ -42,9 +42,15 @@ const state = {
 
   livePrice: null,
 
+  
   direction: "RISE",
 
+  contractType: "CALL",
+
+  barrier: 5,
+
   amount: 1,
+   
 
   duration: 5,
 
@@ -213,12 +219,23 @@ ui.accountTypeMessage =
       "trade-amount"
     );
 
+ 
   ui.duration =
     findElement(
       "duration",
       "tradeDuration",
       "trade-duration"
     );
+
+  // NEW CONTRACT CONTROLS
+  ui.contractType =
+    findElement("contractType");
+
+  ui.barrier =
+    findElement("barrier");
+
+  ui.barrierContainer =
+    findElement("barrierContainer");
 
   ui.riseBtn =
     findElement(
@@ -227,7 +244,7 @@ ui.accountTypeMessage =
       "callBtn",
       "call-btn"
     );
-
+   
   ui.fallBtn =
     findElement(
       "fallBtn",
@@ -1843,54 +1860,39 @@ function handlePublicMessage(raw) {
   }
 
 
+
   if (data.error) {
 
     console.error(
-      "Public API error:",
+      "Trading API error:",
       data.error
     );
 
-    setTradeMessage(
+    const errorMessage =
       data.error.message ||
-      "Market API error."
+      "Deriv trading error.";
+
+    setTradeMessage(
+      "Deriv error: " + errorMessage
     );
 
-    return;
-
-  }
-
-
-  if (
-    data.msg_type ===
-    "active_symbols"
-     ) {
-
-    handleMarkets(
-      data.active_symbols ||
-      data.echo_req?.active_symbols ||
-      []
+    setQuoteStatus(
+      "Deriv error: " + errorMessage
     );
 
-    return;
+    clearTimeout(state.quoteTimer);
 
-  }
+    state.proposal = null;
+    state.proposalId = null;
+    state.askPrice = 0;
+    state.payout = 0;
 
-
-  if (
-    data.msg_type ===
-    "tick"
-  ) {
-
-    handleTick(
-      data.tick
-    );
+    updateQuoteDisplay();
+    enableBuy();
 
     return;
-
   }
-
-}
-
+   
 
 /* =========================================================
    MARKETS
@@ -2717,143 +2719,100 @@ function handleBalance(balance) {
    REQUEST QUOTE
 ========================================================= */
 
+
+
 function requestQuote() {
 
-  clearTimeout(
-    state.quoteTimer
-  );
+  clearTimeout(state.quoteTimer);
 
-
-  state.proposal =
-    null;
-
-  state.proposalId =
-    null;
-
-  state.askPrice =
-    0;
-
-  state.payout =
-    0;
-
+  state.proposal = null;
+  state.proposalId = null;
+  state.askPrice = 0;
+  state.payout = 0;
 
   updateQuoteDisplay();
 
-
-  if (
-    !state.selectedSymbol
-  ) {
-
-    setQuoteStatus(
-      "Select a market."
-    );
-
+  if (!state.selectedSymbol) {
+    setQuoteStatus("Select a market.");
     return;
-
   }
 
+  const amount = getAmount();
+  const duration = getDuration();
 
-  const amount =
-    getAmount();
-
-
-  const duration =
-    getDuration();
-
-
-  if (
-    !Number.isFinite(amount) ||
-    amount <= 0
-  ) {
-     setQuoteStatus(
-      "Enter a valid trade amount."
-    );
-
+  if (!Number.isFinite(amount) || amount <= 0) {
+    setQuoteStatus("Enter a valid trade amount.");
     return;
-
   }
 
-
-  if (
-    !Number.isInteger(duration) ||
-    duration <= 0
-  ) {
-
-    setQuoteStatus(
-      "Enter a valid duration."
-    );
-
+  if (!Number.isInteger(duration) || duration <= 0) {
+    setQuoteStatus("Enter a valid duration.");
     return;
-
   }
 
-
-  if (
-    !state.tradingSocketReady
-  ) {
-
-    setQuoteStatus(
-      "Connecting secure trading account..."
-    );
-
+  if (!state.tradingSocketReady) {
+    setQuoteStatus("Connecting secure trading account...");
     connectTradingSocket();
-
     return;
-
   }
 
-
-  const contractType =
-    state.direction === "RISE"
-      ? "CALL"
-      : "PUT";
-
-
-  setQuoteStatus(
-    "Requesting quote..."
+  const contractType = state.contractType || (
+    state.direction === "RISE" ? "CALL" : "PUT"
   );
 
+  const proposalRequest = {
+    proposal: 1,
+    amount: amount,
+    basis: "stake",
+    contract_type: contractType,
+    currency: "USD",
+    duration: duration,
+    duration_unit: state.durationUnit,
+    underlying_symbol: state.selectedSymbol,
+    req_id: nextRequestId()
+  };
 
-  send(
-    state.tradingSocket,
-    {
-      proposal: 1,
-      amount,
-      basis: "stake",
-      contract_type:
-        contractType,
-      currency: "USD",
-      duration,
-      duration_unit:
-        state.durationUnit,
-      underlying_symbol:
-        state.selectedSymbol,
-      req_id:
-        nextRequestId()
-    }
-  );
-
-
-  state.quoteTimer =
-    setTimeout(
-      function () {
-
-        if (
-          !state.proposalId
-        ) {
-
-          setQuoteStatus(
-            "Quote timed out. Try again."
-          );
-
-        }
-
-      },
-      10000
+  if (
+    contractType === "DIGITOVER" ||
+    contractType === "DIGITUNDER"
+  ) {
+    const barrier = Number(
+      ui.barrier ? ui.barrier.value : 5
     );
 
-}
+    if (!Number.isInteger(barrier) || barrier < 0 || barrier > 9) {
+      setQuoteStatus("Select a valid barrier digit.");
+      return;
+    }
 
+    if (
+      contractType === "DIGITOVER" && barrier >= 9
+    ) {
+      setQuoteStatus("For Over, choose a barrier from 0 to 8.");
+      return;
+    }
+
+    if (
+      contractType === "DIGITUNDER" && barrier <= 0
+    ) {
+      setQuoteStatus("For Under, choose a barrier from 1 to 9.");
+      return;
+    }
+
+    proposalRequest.barrier = String(barrier);
+  }
+
+  setQuoteStatus("Requesting quote...");
+
+  send(state.tradingSocket, proposalRequest);
+
+  state.quoteTimer = setTimeout(function () {
+    if (!state.proposalId) {
+      setQuoteStatus("Quote timed out. Try again.");
+    }
+  }, 10000);
+     }
+       
 
 /* =========================================================
    HANDLE PROPOSAL
@@ -3047,137 +3006,100 @@ function getDuration() {
    EXECUTE BUY
 ========================================================= */
 
+
 async function executeBuy() {
 
   if (!state.loggedIn) {
-
-    setTradeMessage(
-      "Please log in with Deriv first."
-    );
-
+    setTradeMessage("Please log in with Deriv first.");
     return;
-
   }
 
-
-  if (
-    !state.tradingSocketReady
-  ) {
-
-    setTradeMessage(
-      "Secure trading connection is not ready."
-    );
-
+  if (!state.tradingSocketReady) {
+    setTradeMessage("Secure trading connection is not ready.");
     return;
-
   }
-
 
   if (!state.proposalId) {
-
-    setTradeMessage(
-      "No valid quote is available."
-    );
-
+    setTradeMessage("No valid quote is available.");
     return;
-
   }
 
-
-  if (
-    !state.askPrice ||
-    state.askPrice <= 0
-  ) {
-
-    setTradeMessage(
-      "Invalid quote price."
-    );
-
+  if (!state.askPrice || state.askPrice <= 0) {
+    setTradeMessage("Invalid quote price.");
     return;
-
   }
 
+  const amount = getAmount();
 
-  const amount =
-    getAmount();
-
-
-  if (
-    !Number.isFinite(amount) ||
-    amount <= 0
-  ) {
-
-    setTradeMessage(
-      "Enter a valid trade amount."
-    );
-
+  if (!Number.isFinite(amount) || amount <= 0) {
+    setTradeMessage("Enter a valid trade amount.");
     return;
-
   }
 
-
-  const confirmed =
-    window.confirm(
-      `Confirm ${state.direction} trade?\n\n` +
-      `Market: ${state.selectedMarketName}\n` +
-      `Amount: ${money(amount)} USD\n` +
-      `Ask price: ${money(state.askPrice)} USD\n` +
-      `Payout: ${money(state.payout)} USD`
-    );
-
-
- if (!confirmed) {
-  showStatus("Trade cancelled.");
-  return;
-}
-
-ui.buyBtn.disabled = true;
-
-  ui.buyBtn.textContent =
-    "BUYING...";
-
-
-  setTradeMessage(
-    "Submitting buy request..."
+  const contractType = state.contractType || (
+    state.direction === "RISE" ? "CALL" : "PUT"
   );
 
+  const contractLabels = {
+    CALL: "RISE",
+    PUT: "FALL",
+    DIGITEVEN: "EVEN",
+    DIGITODD: "ODD",
+    DIGITOVER: "OVER",
+    DIGITUNDER: "UNDER"
+  };
 
-  const sent =
-    send(
-      state.tradingSocket,
-      {
-        buy:
-          String(
-            state.proposalId
-          ),
+  const contractLabel =
+    contractLabels[contractType] || contractType;
 
-        price:
-          state.askPrice,
+  const barrierText =
+    contractType === "DIGITOVER" ||
+    contractType === "DIGITUNDER"
+      ? "\nBarrier: " +
+        (ui.barrier ? ui.barrier.value : "5")
+      : "";
 
-        req_id:
-          nextRequestId()
-      }
-    );
+  const confirmed = window.confirm(
+    `Confirm ${contractLabel} trade?\n\n` +
+    `Market: ${state.selectedMarketName}\n` +
+    `Duration: ${getDuration()} ${state.durationUnit}\n` +
+    `Amount: ${money(amount)} USD\n` +
+    `Ask price: ${money(state.askPrice)} USD\n` +
+    `Payout: ${money(state.payout)} USD` +
+    barrierText
+  );
 
-
-  if (!sent) {
-
-    ui.buyBtn.disabled =
-      false;
-
-    ui.buyBtn.textContent =
-      "CONFIRM BUY";
-
-    setTradeMessage(
-      "Unable to send buy request."
-    );
-
+  if (!confirmed) {
+    showStatus("Trade cancelled.");
     return;
-
   }
 
-}
+  if (!ui.buyBtn) {
+    setTradeMessage("Buy button was not found.");
+    return;
+  }
 
+  ui.buyBtn.disabled = true;
+  ui.buyBtn.textContent = "BUYING...";
+
+  setTradeMessage("Submitting buy request...");
+
+  const sent = send(
+    state.tradingSocket,
+    {
+      buy: String(state.proposalId),
+      price: state.askPrice,
+      req_id: nextRequestId()
+    }
+  );
+
+  if (!sent) {
+    ui.buyBtn.disabled = false;
+    ui.buyBtn.textContent = "CONFIRM BUY";
+    setTradeMessage("Unable to send buy request.");
+    return;
+  }
+}
 
 /* =========================================================
    HANDLE BUY RESPONSE
@@ -3186,140 +3108,103 @@ ui.buyBtn.disabled = true;
 function handleBuy(buy) {
 
   if (!buy) {
-
-    setTradeMessage(
-      "Buy request returned no contract."
-    );
-
+    setTradeMessage("Buy request returned no contract.");
     enableBuy();
-
     return;
-
   }
 
-
   const contractId =
-    buy.contract_id ||
-    buy.id ||
-    null;
+    buy.contract_id || buy.id || null;
 
+  const buyPrice = Number(
+    buy.buy_price ?? buy.price ?? state.askPrice
+  );
 
-  const buyPrice =
-    Number(
-      buy.buy_price ??
-      buy.price ??
-      state.askPrice
-    );
-
-
-  const payout =
-    Number(
-      buy.payout ??
-      state.payout ??
-      0
-    );
-
+  const payout = Number(
+    buy.payout ?? state.payout ?? 0
+  );
 
   if (!contractId) {
-
     setTradeMessage(
       "Buy response did not contain a contract ID."
     );
-
     enableBuy();
-
     return;
-
   }
 
+  const contractType = state.contractType || (
+    state.direction === "RISE" ? "CALL" : "PUT"
+  );
 
-  const contract = {
-
-    contract_id:
-      String(contractId),
-
-    symbol:
-      state.selectedSymbol,
-
-    symbol_name:
-      state.selectedMarketName,
-
-    direction:
-      state.direction,
-
-    contract_type:
-      state.direction === "RISE"
-        ? "CALL"
-        : "PUT",
-
-    buy_price:
-      buyPrice,
-
-    payout,
-
-    profit:
-      null,
-
-    status:
-      "open",
-
-    start_time:
-      Date.now()
-
+  const contractLabels = {
+    CALL: "RISE",
+    PUT: "FALL",
+    DIGITEVEN: "EVEN",
+    DIGITODD: "ODD",
+    DIGITOVER: "OVER",
+    DIGITUNDER: "UNDER"
   };
 
+  const contract = {
+    contract_id: String(contractId),
+
+    symbol: state.selectedSymbol,
+
+    symbol_name: state.selectedMarketName,
+
+    direction:
+      contractLabels[contractType] || contractType,
+
+    contract_type: contractType,
+
+    barrier:
+      contractType === "DIGITOVER" ||
+      contractType === "DIGITUNDER"
+        ? Number(ui.barrier ? ui.barrier.value : 5)
+        : null,
+
+    buy_price: buyPrice,
+
+    payout: payout,
+
+    profit: null,
+
+    status: "open",
+
+    start_time: Date.now()
+  };
 
   state.activeContracts.set(
     String(contractId),
     contract
   );
 
-
   setTradeMessage(
-    `Trade opened ✓ Contract ${contractId}`
-  );
-   renderOpenContracts();
-
-
-  subscribeContract(
-    contractId
+    `Trade opened ✓ ${contract.direction} — Contract ${contractId}`
   );
 
+  renderOpenContracts();
+
+  subscribeContract(contractId);
 
   updatePerformance();
 
-
   requestTradingBalance();
 
-
-  state.proposal =
-    null;
-
-  state.proposalId =
-    null;
-
-  state.askPrice =
-    0;
-
-  state.payout =
-    0;
-
+  state.proposal = null;
+  state.proposalId = null;
+  state.askPrice = 0;
+  state.payout = 0;
 
   updateQuoteDisplay();
-
 
   disableBuy(
     "Trade opened. Waiting for result..."
   );
 
-
-  setQuoteStatus(
-    "Trade opened ✓"
-  );
-
-}
-
-
+  setQuoteStatus("Trade opened ✓");
+     }
+     
 /* =========================================================
    SUBSCRIBE CONTRACT
 ========================================================= */
@@ -3969,45 +3854,79 @@ function handleTransaction(transaction) {
    DIRECTION
 ========================================================= */
 
+
 function setDirection(direction) {
 
-  if (
-    direction !== "RISE" &&
-    direction !== "FALL"
-  ) {
+  const allowedTypes = [
+    "RISE",
+    "FALL",
+    "CALL",
+    "PUT",
+    "DIGITEVEN",
+    "DIGITODD",
+    "DIGITOVER",
+    "DIGITUNDER"
+  ];
 
+  if (!allowedTypes.includes(direction)) {
     return;
-
   }
 
+  if (direction === "RISE") {
+    state.direction = "RISE";
+    state.contractType = "CALL";
+  } else if (direction === "FALL") {
+    state.direction = "FALL";
+    state.contractType = "PUT";
+  } else {
+    state.contractType = direction;
+    state.direction = direction;
+  }
 
-  state.direction =
-    direction;
-
+  if (ui.contractType) {
+    ui.contractType.value = state.contractType;
+  }
 
   if (ui.riseBtn) {
-
     ui.riseBtn.classList.toggle(
       "active",
-      direction === "RISE"
+      state.contractType === "CALL"
     );
-
   }
-
 
   if (ui.fallBtn) {
-
     ui.fallBtn.classList.toggle(
       "active",
-      direction === "FALL"
+      state.contractType === "PUT"
     );
-
   }
 
+  const needsBarrier =
+    state.contractType === "DIGITOVER" ||
+    state.contractType === "DIGITUNDER";
+
+  if (ui.barrierContainer) {
+    ui.barrierContainer.style.display =
+      needsBarrier ? "block" : "none";
+  }
+
+  if (ui.directionStatus) {
+    const labels = {
+      CALL: "Rise selected",
+      PUT: "Fall selected",
+      DIGITEVEN: "Even selected",
+      DIGITODD: "Odd selected",
+      DIGITOVER: "Over selected",
+      DIGITUNDER: "Under selected"
+    };
+
+    ui.directionStatus.textContent =
+      labels[state.contractType] || "Select a contract";
+  }
 
   requestQuote();
-
-}
+     }
+     
 
 
 /* =========================================================
@@ -4250,6 +4169,41 @@ if (ui.accountType) {
   }
 
 
+  if (ui.contractType) {
+
+    ui.contractType.addEventListener(
+      "change",
+      function () {
+
+        setDirection(
+          ui.contractType.value
+        );
+
+      }
+    );
+
+  }
+
+  if (ui.barrier) {
+
+    ui.barrier.addEventListener(
+      "change",
+      function () {
+
+        if (
+          state.contractType === "DIGITOVER" ||
+          state.contractType === "DIGITUNDER"
+        ) {
+
+          requestQuote();
+
+        }
+
+      }
+    );
+
+  }
+   
   if (ui.buyBtn) {
 
     ui.buyBtn.addEventListener(
