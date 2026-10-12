@@ -1844,55 +1844,45 @@ function handlePublicMessage(raw) {
   let data;
 
   try {
-
-    data =
-      JSON.parse(raw);
-
+    data = JSON.parse(raw);
   } catch (error) {
-
-    console.error(
-      "Invalid public message:",
-      raw
-    );
-
+    console.error("Invalid public message:", raw);
     return;
-
   }
 
-
-
   if (data.error) {
-
-    console.error(
-      "Trading API error:",
-      data.error
-    );
+    console.error("Public API error:", data.error);
 
     const errorMessage =
       data.error.message ||
-      "Deriv trading error.";
+      "Deriv market error.";
 
-    setTradeMessage(
-      "Deriv error: " + errorMessage
-    );
-
-    setQuoteStatus(
-      "Deriv error: " + errorMessage
-    );
-
-    clearTimeout(state.quoteTimer);
-
-    state.proposal = null;
-    state.proposalId = null;
-    state.askPrice = 0;
-    state.payout = 0;
-
-    updateQuoteDisplay();
-    enableBuy();
+    setTradeMessage("Deriv error: " + errorMessage);
 
     return;
   }
-   
+
+  // Receive the available markets
+  if (
+    data.msg_type === "active_symbols" &&
+    Array.isArray(data.active_symbols)
+  ) {
+    handleMarkets(data.active_symbols);
+    return;
+  }
+
+  // Receive live market prices
+  if (
+    data.msg_type === "tick" &&
+    data.tick
+  ) {
+    handleTick(data.tick);
+    return;
+  }
+
+}
+
+  
 
 /* =========================================================
    MARKETS
@@ -4375,9 +4365,5 @@ if (
   );
 
 } else {
-
   initialize();
-
 }
-
-}   
