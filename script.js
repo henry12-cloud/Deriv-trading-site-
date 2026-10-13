@@ -1,73 +1,54 @@
+
 /* =========================================================
-   TRADEDOLLARS
-   Complete Trading Interface Script
+   TRADEDOLLARS — TRADING INTERFACE
+   Continuous ticks, live chart, digits analysis, proposals
    ========================================================= */
 
 "use strict";
 
-
-/* =========================================================
-   CONFIG
-========================================================= */
-
 const PUBLIC_WS_BASE =
   "wss://api.derivws.com/trading/v1/options/ws/public";
 
-
-/* =========================================================
-   STATE
-========================================================= */
-
 const state = {
-
   config: null,
-
   loggedIn: false,
-
   account: null,
 
   publicSocket: null,
-
   tradingSocket: null,
 
-  publicSocketReady: false,
-
-  tradingSocketReady: false,
+  publicReady: false,
+  tradingReady: false,
 
   markets: [],
-
   selectedSymbol: "",
-
   selectedMarketName: "",
 
   livePrice: null,
+  totalTicks: 0,
 
-  
+  priceHistory: [],
+  digitHistory: [],
+
   direction: "RISE",
-
   contractType: "CALL",
-
   barrier: 5,
-
   amount: 1,
-   
-
   duration: 5,
-
   durationUnit: "t",
 
   proposal: null,
-
   proposalId: null,
-
   askPrice: 0,
-
   payout: 0,
+  quoteExpiresAt: 0,
 
   requestId: 1000,
+  pendingProposalReqId: null,
+  pendingBuyReqId: null,
+  buying: false,
 
   activeContracts: new Map(),
-
   finishedContracts: new Map(),
 
   performance: {
@@ -77,4293 +58,1534 @@ const state = {
   },
 
   quoteTimer: null,
-
-  reconnectTimer: null,
-
-  connectingTrading: false
-
+  reconnectTimer: null
 };
 
-
-/* =========================================================
-   UI HELPERS
-========================================================= */
-
 const ui = {};
-state.accountType = "demo";
 
-
-function findElement(...ids) {
-
-  for (const id of ids) {
-
-    const element =
-      document.getElementById(id);
-
-    if (element) {
-      return element;
-    }
-
-  }
-
-  return null;
+function el(id) {
+  return document.getElementById(id);
 }
-
 
 function cacheUI() {
-
-  ui.connectionStatus =
-    findElement(
-      "connectionStatus",
-      "connection-status",
-      "status"
-    );
-
-  ui.accountStatus =
-    findElement(
-      "accountStatus",
-      "account-status"
-    );
-
-  ui.accountId =
-    findElement(
-      "accountId",
-      "account-id"
-    );
-
-  ui.balance =
-    findElement(
-      "balance"
-    );
-
-  ui.accountType =
-  findElement(
-    "accountType"
-  );
-
-ui.accountTypeMessage =
-  findElement(
-    "accountTypeMessage"
-  );
-
-  ui.loginBtn =
-    findElement(
-      "loginBtn",
-      "login-btn"
-    );
-
-  ui.logoutBtn =
-    findElement(
-      "logoutBtn",
-      "logout-btn"
-    );
-
-  ui.marketSelect =
-    findElement(
-      "marketSelect",
-      "market-select",
-      "market"
-    );
-
-  ui.marketName =
-    findElement(
-      "marketName",
-      "market-name",
-      "selectedMarket"
-    );
-
-  ui.marketCount =
-    findElement(
-      "marketCount",
-      "market-count"
-    );
-
-  ui.livePrice =
-    findElement(
-      "livePrice",
-      "live-price",
-      "price"
-    );
-   
-  ui.liveDigit =
-    findElement(
-      "liveDigit"
-    );
-
-  ui.liveDigitHistory =
-    findElement(
-      "liveDigitHistory"
-    );
-   
-  /* =========================================================
-   LIVE PRICE CHART
-========================================================= */
-
-  ui.liveChart =
-    findElement(
-      "liveChart",
-      "live-price-chart",
-      "priceChart",
-      "chart"
-    );
-  ui.priceMessage =
-    findElement(
-      "priceMessage",
-      "price-message"
-    );
-
-  ui.amount =
-    findElement(
-      "amount",
-      "tradeAmount",
-      "trade-amount"
-    );
-
- 
-  ui.duration =
-    findElement(
-      "duration",
-      "tradeDuration",
-      "trade-duration"
-    );
-
-  // NEW CONTRACT CONTROLS
-  ui.contractType =
-    findElement("contractType");
-
-  ui.barrier =
-    findElement("barrier");
-
-  ui.barrierContainer =
-    findElement("barrierContainer");
-
-  ui.riseBtn =
-    findElement(
-      "riseBtn",
-      "rise-btn",
-      "callBtn",
-      "call-btn"
-    );
-   
-  ui.fallBtn =
-    findElement(
-      "fallBtn",
-      "fall-btn",
-      "putBtn",
-      "put-btn"
-    );
-
-  ui.quoteStatus =
-    findElement(
-      "quoteStatus",
-      "quote-status",
-      "quoteMessage"
-    );
-
-  ui.askPrice =
-    findElement(
-      "askPrice",
-      "ask-price"
-    );
-
-  ui.payout =
-    findElement(
-      "payout"
-    );
-
-  ui.buyBtn =
-    findElement(
-      "buyBtn",
-      "buy-btn",
-      "confirmBuy",
-      "confirm-buy"
-    );
-
-  ui.tradeMessage =
-    findElement(
-      "tradeMessage",
-      "trade-message"
-    );
-
-  ui.openContracts =
-    findElement(
-      "openContracts",
-      "open-contracts",
-      "contracts"
-    );
-
-  ui.tradeHistory =
-    findElement(
-      "tradeHistory",
-      "trade-history",
-      "history"
-    );
-
-  ui.wins =
-    findElement(
-      "wins",
-      "winCount",
-      "win-count"
-    );
-
-  ui.losses =
-    findElement(
-      "losses",
-      "lossCount",
-      "loss-count"
-    );
-
-  ui.totalProfit =
-    findElement(
-      "totalProfit",
-      "total-profit",
-      "profit"
-    );
-
-}
-/* =========================================================
-   LIVE PRICE CHART
-========================================================= */
-
-state.priceHistory = [];
-// =====================================================
-// DIGITS ANALYSIS
-// =====================================================
-
-state.digitHistory = [];
-
-function updateDigitsAnalysis(price) {
-  const numericPrice = Number(price);
-
-  if (!Number.isFinite(numericPrice)) {
-    return;
-  }
-
-  // Extract the final digit from the displayed price
-  const priceString = numericPrice.toFixed(2);
-  const digitsOnly = priceString.replace(/\D/g, "");
-
-  if (!digitsOnly.length) {
-    return;
-  }
-
-  const lastDigit =
-    Number(digitsOnly.charAt(digitsOnly.length - 1));
-
-  if (!Number.isInteger(lastDigit)) {
-    return;
-  }
-
-  state.digitHistory.push(lastDigit);
-
-  // Keep the most recent 200 ticks
-  if (state.digitHistory.length > 200) {
-    state.digitHistory.shift();
-  }
-
-  const history = state.digitHistory;
-  const total = history.length;
-
-  if (total === 0) {
-    return;
-  }
-
-  const counts = Array(10).fill(0);
-
-  history.forEach(function (digit) {
-    counts[digit]++;
+  [
+    "connectionStatus",
+    "accountStatus",
+    "accountId",
+    "balance",
+    "accountType",
+    "accountTypeMessage",
+    "loginBtn",
+    "logoutBtn",
+    "marketSelect",
+    "marketName",
+    "marketCount",
+    "livePrice",
+    "liveDigit",
+    "liveDigitHistory",
+    "liveChart",
+    "priceMessage",
+    "amount",
+    "duration",
+    "contractType",
+    "barrier",
+    "barrierContainer",
+    "riseBtn",
+    "fallBtn",
+    "quoteStatus",
+    "askPrice",
+    "payout",
+    "buyBtn",
+    "tradeMessage",
+    "openContracts",
+    "tradeHistory",
+    "wins",
+    "losses",
+    "totalProfit"
+  ].forEach(id => {
+    ui[id] = el(id);
   });
 
-  let mostFrequent = 0;
-  let leastFrequent = 0;
-
-  for (let i = 1; i < 10; i++) {
-    if (counts[i] > counts[mostFrequent]) {
-      mostFrequent = i;
-    }
-
-    if (counts[i] < counts[leastFrequent]) {
-      leastFrequent = i;
-    }
-  }
-
-  const evenCount =
-    history.filter(function (digit) {
-      return digit % 2 === 0;
-    }).length;
-
-  const oddCount = total - evenCount;
-
-  const overFiveCount =
-    history.filter(function (digit) {
-      return digit > 5;
-    }).length;
-
-  const underFiveCount =
-    history.filter(function (digit) {
-      return digit < 5;
-    }).length;
-
-  const last =
-    history[history.length - 1];
-
-  const previous =
-    history.length > 1
-      ? history[history.length - 2]
-      : null;
-
-  const repeated =
-    previous !== null &&
-    last === previous;
-
-  const evenPercentage =
-    ((evenCount / total) * 100).toFixed(1);
-
-  const oddPercentage =
-    ((oddCount / total) * 100).toFixed(1);
-
-  const overFivePercentage =
-    ((overFiveCount / total) * 100).toFixed(1);
-
-  const underFivePercentage =
-    ((underFiveCount / total) * 100).toFixed(1);
-
-  const mostFrequency =
-    ((counts[mostFrequent] / total) * 100).toFixed(1);
-
-  const leastFrequency =
-    ((counts[leastFrequent] / total) * 100).toFixed(1);
-
-  let bias = "WAIT";
-  let confidence = "LOW";
-  let message =
-    "Collecting more tick data...";
-
-  if (total >= 50) {
-
-    const difference =
-      Math.abs(
-        evenCount - oddCount
-      ) / total;
-
-    if (difference >= 0.10) {
-
-      bias =
-        evenCount > oddCount
-          ? "EVEN BIAS"
-          : "ODD BIAS";
-
-      confidence =
-        difference >= 0.18
-          ? "MEDIUM"
-          : "LOW";
-
-      message =
-        "A short-term digit imbalance has been detected. Wait for confirmation.";
-
-    } else {
-
-      bias = "NEUTRAL";
-      confidence = "LOW";
-
-      message =
-        "Digit distribution is relatively balanced. Wait for confirmation.";
-    }
-  }
-
-  const sampleElement =
-    document.getElementById("digitsSample");
-
-  const mostElement =
-    document.getElementById("mostFrequentDigit");
-
-  const leastElement =
-    document.getElementById("leastFrequentDigit");
-
-  const evenElement =
-    document.getElementById("evenPercentage");
-
-  const oddElement =
-    document.getElementById("oddPercentage");
-
-  const overFiveElement =
-    document.getElementById("overFivePercentage");
-
-  const underFiveElement =
-    document.getElementById("underFivePercentage");
-
-  const repeatedElement =
-    document.getElementById("repeatedDigit");
-
-  const biasElement =
-    document.getElementById("digitBias");
-
-  const confidenceElement =
-    document.getElementById("digitConfidence");
-
-  const messageElement =
-    document.getElementById("digitAnalysisMessage");
-
-  if (sampleElement) {
-    sampleElement.textContent =
-      total + " ticks";
-  }
-
-  if (mostElement) {
-    mostElement.textContent =
-      mostFrequent +
-      " (" +
-      mostFrequency +
-      "%)";
-  }
-
-  if (leastElement) {
-    leastElement.textContent =
-      leastFrequent +
-      " (" +
-      leastFrequency +
-      "%)";
-  }
-
-  if (evenElement) {
-    evenElement.textContent =
-      evenPercentage + "%";
-  }
-
-  if (oddElement) {
-    oddElement.textContent =
-      oddPercentage + "%";
-  }
-
-  if (overFiveElement) {
-    overFiveElement.textContent =
-      overFivePercentage + "%";
-  }
-
-  if (underFiveElement) {
-    underFiveElement.textContent =
-      underFivePercentage + "%";
-  }
-
-  if (repeatedElement) {
-    repeatedElement.textContent =
-      repeated ? "YES" : "NO";
-  }
-
-  if (biasElement) {
-    biasElement.textContent = bias;
-  }
-
-  if (confidenceElement) {
-    confidenceElement.textContent =
-      confidence;
-  }
-
-  if (messageElement) {
-    messageElement.textContent =
-      message;
-  }
+  // Your HTML uses these IDs.
+  ui.liveChart = el("chart") || el("liveChart");
+  ui.marketName = el("selectedMarket");
+  ui.priceMessage = el("priceStatus");
 }
-
-function updateLiveChart(price) {
-  if (
-    !ui.liveChart ||
-    !Number.isFinite(Number(price))
-  ) {
-    return;
-  }
-
-  const canvas =
-    ui.liveChart;
-
-  if (!canvas.getContext) {
-    return;
-  }
-
-state.priceHistory.push({
-  time: new Date().toLocaleTimeString(),
-  price: Number(price)
-});
-
-updateMarketAnalysis(price);
-updateDigitsAnalysis(price);
-
-  if (state.priceHistory.length > 50) {
-    state.priceHistory.shift();
-  }
-
-  const rect =
-    canvas.getBoundingClientRect();
-
-  const width =
-    Math.max(
-      Math.floor(rect.width),
-      300
-    );
-
-  const height =
-    Math.max(
-      Math.floor(rect.height),
-      260
-    );
-
-  const dpr =
-    window.devicePixelRatio || 1;
-
-  canvas.width =
-    width * dpr;
-
-  canvas.height =
-    height * dpr;
-
-  const ctx =
-    canvas.getContext("2d");
-
-  ctx.setTransform(
-    dpr,
-    0,
-    0,
-    dpr,
-    0,
-    0
-  );
-
-  ctx.clearRect(
-    0,
-    0,
-    width,
-    height
-  );
-
-  if (state.priceHistory.length < 2) {
-    return;
-  }
-
-  const prices =
-    state.priceHistory.map(
-      item => item.price
-    );
-
-  const min =
-    Math.min(...prices);
-
-  const max =
-    Math.max(...prices);
-
-  const range =
-    max - min || 1;
-
-  const padding = 25;
-
-  ctx.beginPath();
-
-  state.priceHistory.forEach(
-    function (item, index) {
-
-      const x =
-        padding +
-        (
-          index /
-          (state.priceHistory.length - 1)
-        ) *
-        (
-          width -
-          padding * 2
-        );
-
-      const y =
-        height -
-        padding -
-        (
-          (
-            item.price -
-            min
-          ) /
-          range
-        ) *
-        (
-          height -
-          padding * 2
-        );
-
-      if (index === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    }
-  );
-
-  ctx.strokeStyle =
-    "#2196f3";
-
-  ctx.lineWidth = 2;
-
-  ctx.stroke();
-}
-
-/* =========================================================
-   MARKET ANALYSIS
-   CONFIRMATION-BASED STRATEGY
-========================================================= */
-
-function updateMarketAnalysis(price) {
-
-  const value = Number(price);
-
-  if (!Number.isFinite(value)) {
-    return;
-  }
-
-  const history =
-    Array.isArray(state.priceHistory)
-      ? state.priceHistory
-      : [];
-
-  /*
-    We require 20 ticks before making a directional decision.
-    This prevents the dashboard from reacting too quickly
-    to a small number of price movements.
-  */
-
-  if (history.length < 20) {
-
-    updateAnalysisDisplay(
-      "WAITING",
-      "WAITING",
-      "--",
-      "--",
-      "Collecting more live price data before generating a signal.",
-      "WAIT"
-    );
-
-    return;
-  }
-
-  const prices =
-    history
-      .map(item => Number(item.price))
-      .filter(Number.isFinite);
-
-  if (prices.length < 20) {
-    return;
-  }
-
-
-  /* =======================================================
-     TIME WINDOWS
-  ======================================================= */
-
-  const shortTerm =
-    prices.slice(-5);
-
-  const previousShortTerm =
-    prices.slice(-10, -5);
-
-  const mediumTerm =
-    prices.slice(-10);
-
-  const previousMediumTerm =
-    prices.slice(-20, -10);
-
-  const structurePrices =
-    prices.slice(-20);
-
-
-  /* =======================================================
-     AVERAGES
-  ======================================================= */
-
-  const shortAverage =
-    shortTerm.reduce(
-      (total, number) =>
-        total + number,
-      0
-    ) / shortTerm.length;
-
-  const previousShortAverage =
-    previousShortTerm.reduce(
-      (total, number) =>
-        total + number,
-      0
-    ) / previousShortTerm.length;
-
-  const mediumAverage =
-    mediumTerm.reduce(
-      (total, number) =>
-        total + number,
-      0
-    ) / mediumTerm.length;
-
-  const previousMediumAverage =
-    previousMediumTerm.reduce(
-      (total, number) =>
-        total + number,
-      0
-    ) / previousMediumTerm.length;
-
-
-  /* =======================================================
-     TREND CONFIRMATION
-  ======================================================= */
-
-  const shortChange =
-    shortAverage -
-    previousShortAverage;
-
-  const mediumChange =
-    mediumAverage -
-    previousMediumAverage;
-
-  let trend = "NEUTRAL";
-
-  if (
-    shortChange > 0 &&
-    mediumChange > 0
-  ) {
-
-    trend = "BULLISH";
-
-  } else if (
-    shortChange < 0 &&
-    mediumChange < 0
-  ) {
-
-    trend = "BEARISH";
-
-  }
-
-
-  /* =======================================================
-     SUPPORT / RESISTANCE
-  ======================================================= */
-
-  const support =
-    Math.min(...structurePrices);
-
-  const resistance =
-    Math.max(...structurePrices);
-
-  const structureRange =
-    resistance -
-    support;
-
-
-  /* =======================================================
-     MOMENTUM
-  ======================================================= */
-
-  const movement =
-    Math.abs(shortChange);
-
-  let normalizedMomentum = 0;
-
-  if (structureRange > 0) {
-
-    normalizedMomentum =
-      movement /
-      structureRange;
-
-  }
-
-  let momentum = "WEAK";
-
-  if (
-    normalizedMomentum >= 0.10
-  ) {
-
-    momentum = "MODERATE";
-
-  }
-
-  if (
-    normalizedMomentum >= 0.25
-  ) {
-
-    momentum = "STRONG";
-
-  }
-
-
-  /* =======================================================
-     DIRECTIONAL CONSISTENCY
-  ======================================================= */
-
-  const recentMoves = [];
-
-  for (
-    let i = prices.length - 8;
-    i < prices.length;
-    i++
-  ) {
-
-    if (i <= 0) {
-      continue;
-    }
-
-    const difference =
-      prices[i] -
-      prices[i - 1];
-
-    if (difference > 0) {
-      recentMoves.push("UP");
-    }
-
-    if (difference < 0) {
-      recentMoves.push("DOWN");
-    }
-
-  }
-
-
-  const upMoves =
-    recentMoves.filter(
-      move => move === "UP"
-    ).length;
-
-  const downMoves =
-    recentMoves.filter(
-      move => move === "DOWN"
-    ).length;
-
-  const totalMoves =
-    recentMoves.length;
-
-  let directionalConsistency = 0;
-
-  if (totalMoves > 0) {
-
-    directionalConsistency =
-      Math.max(
-        upMoves,
-        downMoves
-      ) / totalMoves;
-
-  }
-
-
-  /* =======================================================
-     SUPPORT / RESISTANCE ZONES
-  ======================================================= */
-
-  let nearSupport = false;
-  let nearResistance = false;
-
-  if (structureRange > 0) {
-
-    const distanceFromSupport =
-      value - support;
-
-    const distanceFromResistance =
-      resistance - value;
-
-    const zoneSize =
-      structureRange * 0.15;
-
-    if (
-      distanceFromSupport <= zoneSize
-    ) {
-
-      nearSupport = true;
-
-    }
-
-    if (
-      distanceFromResistance <= zoneSize
-    ) {
-
-      nearResistance = true;
-
-    }
-
-  }
-
-
-  /* =======================================================
-     SIGNAL
-  ======================================================= */
-
-  let signal = "WAIT";
-
-
-  /*
-    RISE requires:
-
-    1. Bullish short-term trend
-    2. Bullish medium-term trend
-    3. At least moderate momentum
-    4. At least 60% directional consistency
-    5. Price not too close to resistance
-  */
-
-  if (
-    trend === "BULLISH" &&
-    momentum !== "WEAK" &&
-    directionalConsistency >= 0.60 &&
-    !nearResistance
-  ) {
-
-    signal = "RISE";
-
-  }
-
-
-  /*
-    FALL requires the opposite confirmation.
-  */
-
-  if (
-    trend === "BEARISH" &&
-    momentum !== "WEAK" &&
-    directionalConsistency >= 0.60 &&
-    !nearSupport
-  ) {
-
-    signal = "FALL";
-
-  }
-
-  /* =======================================================
-     STRATEGY CONFIDENCE
-  ======================================================= */
-
-  let confidence = "WAIT";
-
-  if (signal !== "WAIT") {
-
-    if (
-      momentum === "STRONG" &&
-      directionalConsistency >= 0.75
-    ) {
-
-      confidence = "HIGH";
-
-    } else {
-
-      confidence = "MEDIUM";
-
-    }
-
-  }
-  /* =======================================================
-     REASON
-  ======================================================= */
-
-  let reason =
-    "Market conditions are unclear. Wait for stronger confirmation.";
-
-
-  if (
-    trend === "BULLISH" &&
-    momentum === "WEAK"
-  ) {
-
-    reason =
-      "Bullish trend detected, but momentum is too weak.";
-
-  }
-
-
-  if (
-    trend === "BEARISH" &&
-    momentum === "WEAK"
-  ) {
-
-    reason =
-      "Bearish trend detected, but momentum is too weak.";
-
-  }
-
-
-  if (
-    trend === "BULLISH" &&
-    directionalConsistency < 0.60
-  ) {
-
-    reason =
-      "Bullish movement is not consistent enough yet.";
-
-  }
-
-
-  if (
-    trend === "BEARISH" &&
-    directionalConsistency < 0.60
-  ) {
-
-    reason =
-      "Bearish movement is not consistent enough yet.";
-
-  }
-
-
-  if (
-    trend === "BULLISH" &&
-    nearResistance
-  ) {
-
-    reason =
-      "Bullish trend detected, but price is close to resistance. Wait.";
-
-  }
-
-
-  if (
-    trend === "BEARISH" &&
-    nearSupport
-  ) {
-
-    reason =
-      "Bearish trend detected, but price is close to support. Wait.";
-
-  }
-
-
-  if (signal === "RISE") {
-
-    reason =
-      "Bullish trend, momentum and directional movement are aligned.";
-
-  }
-
-
-  if (signal === "FALL") {
-
-    reason =
-      "Bearish trend, momentum and directional movement are aligned.";
-
-  }
-
-
-  /* =======================================================
-     UPDATE DASHBOARD
-  ======================================================= */
-
-  updateAnalysisDisplay(
-    trend,
-    momentum,
-    support,
-    resistance,
-    reason,
-    signal
-  );
-
-}
-function updateAnalysisDisplay(
-  trend,
-  momentum,
-  support,
-  resistance,
-  reason,
-  signal,
-  confidence = "LOW"
-) {
-
-  const trendElement =
-    document.getElementById("analysisTrend");
-
-  const momentumElement =
-    document.getElementById("analysisMomentum");
-
-  const supportElement =
-    document.getElementById("analysisSupport");
-
-  const resistanceElement =
-    document.getElementById("analysisResistance");
-
-  const signalElement =
-    document.getElementById("analysisSignal");
-
-  const reasonElement =
-    document.getElementById("analysisReason");
-
-  const confidenceElement =
-    document.getElementById("analysisConfidence");
-
-
-  if (trendElement) {
-    trendElement.textContent =
-      trend;
-  }
-
-
-  if (momentumElement) {
-    momentumElement.textContent =
-      momentum;
-  }
-
-
-  if (supportElement) {
-
-    supportElement.textContent =
-      Number.isFinite(Number(support))
-        ? Number(support).toFixed(2)
-        : "--";
-
-  }
-
-
-  if (resistanceElement) {
-
-    resistanceElement.textContent =
-      Number.isFinite(Number(resistance))
-        ? Number(resistance).toFixed(2)
-        : "--";
-
-  }
-
-
-  if (signalElement) {
-    signalElement.textContent =
-      signal;
-  }
-
-
-  if (reasonElement) {
-    reasonElement.textContent =
-      reason;
-  }
-
-
-  if (confidenceElement) {
-    confidenceElement.textContent =
-      confidence;
-   }
-   }
-
-
-/* =========================================================
-   TEXT / DISPLAY
-========================================================= */
 
 function setText(element, value) {
-
-  if (!element) {
-    return;
+  if (element) {
+    element.textContent =
+      value === null || value === undefined
+        ? "--"
+        : String(value);
   }
-
-  element.textContent =
-    value === null ||
-    value === undefined
-      ? "--"
-      : String(value);
-
 }
-
 
 function money(value) {
-
-  const number =
-    Number(value);
-
-  if (!Number.isFinite(number)) {
-    return "--";
-  }
-
-  return number.toFixed(2);
-
+  const n = Number(value);
+  return Number.isFinite(n) ? n.toFixed(2) : "--";
 }
 
-
-function setConnectionStatus(message) {
-
-  setText(
-    ui.connectionStatus,
-    message
-  );
-
+function nextId() {
+  return ++state.requestId;
 }
-
-
-function setAccountStatus(message) {
-
-  setText(
-    ui.accountStatus,
-    message
-  );
-
-}
-
-
-function setTradeMessage(message) {
-
-  setText(
-    ui.tradeMessage,
-    message
-  );
-
-}
-
-
-function setQuoteStatus(message) {
-
-  setText(
-    ui.quoteStatus,
-    message
-  );
-
-}
-
-
-/* =========================================================
-   REQUEST ID
-========================================================= */
-
-function nextRequestId() {
-
-  state.requestId += 1;
-
-  return state.requestId;
-
-}
-
-
-/* =========================================================
-   SOCKET SEND
-========================================================= */
 
 function send(socket, payload) {
-
-  if (
-    !socket ||
-    socket.readyState !== WebSocket.OPEN
-  ) {
-
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
     return false;
-
   }
 
   try {
-
-    socket.send(
-      JSON.stringify(payload)
-    );
-
+    socket.send(JSON.stringify(payload));
     return true;
-
   } catch (error) {
-
-    console.error(
-      "WebSocket send error:",
-      error
-    );
-
+    console.error("WebSocket send error:", error);
     return false;
-
   }
-
 }
 
-
-/* =========================================================
-   CONFIG
-========================================================= */
-
-async function loadConfig() {
-
-  try {
-
-    const response =
-      await fetch(
-        "/api/config",
-        {
-          cache: "no-store",
-          credentials: "same-origin"
-        }
-      );
-
-    if (!response.ok) {
-      throw new Error(
-        "Unable to load server configuration."
-      );
-    }
-
-    state.config =
-      await response.json();
-
-    return true;
-
-  } catch (error) {
-
-    console.error(
-      "Config error:",
-      error
-    );
-
-    setConnectionStatus(
-      "Server configuration unavailable."
-    );
-
-    return false;
-
-  }
-
+function showMessage(message) {
+  setText(ui.tradeMessage, message);
 }
 
-
-/* =========================================================
-   SESSION CHECK
-========================================================= */
-
-async function checkSession() {
-
-  try {
-
-    const response =
-      await fetch(
-        "/api/session",
-        {
-          cache: "no-store",
-          credentials: "same-origin"
-        }
-      );
-
-    if (!response.ok) {
-      return false;
-    }
-
-    const data =
-      await response.json();
-
-    state.loggedIn =
-      Boolean(data.authenticated);
-
-    return state.loggedIn;
-
-  } catch (error) {
-
-    console.error(
-      "Session check error:",
-      error
-    );
-
-    return false;
-
-  }
-
-}
-
-
-/* =========================================================
-   ACCOUNT
-========================================================= */
-
-async function loadAccount() {
-
-  if (!state.loggedIn) {
-
-    setAccountStatus(
-      "Log in first"
-    );
-
-    setText(
-      ui.accountId,
-      "--"
-    );
-
-    setText(
-      ui.balance,
-      "--"
-    );
-
-    return false;
-
-}
-   setAccountStatus(
-    "Checking account..."
-  );
-
-
-  try {
-
-    const response =
-      await fetch(
-        "/api/account",
-        {
-          cache: "no-store",
-          credentials: "same-origin"
-        }
-      );
-
-
-    const data =
-      await response.json();
-
-
-    if (
-      response.status === 401
-    ) {
-
-      state.loggedIn =
-        false;
-
-      showLoggedOut();
-
-      return false;
-
-    }
-
-
-    if (
-      !response.ok
-    ) {
-
-      throw new Error(
-        data.error ||
-        "Unable to load account."
-      );
-
-    }
-
-
-    if (!data.account) {
-
-      setAccountStatus(
-        "No trading account found"
-      );
-
-      return false;
-
-    }
-
-
-    state.account =
-      data.account;
-
-
-    setAccountStatus(
-      "Connected to Deriv ✓"
-    );
-
-
-    setText(
-      ui.accountId,
-      state.account.account_id ||
-      state.account.id ||
-      "--"
-    );
-
-
-    setText(
-      ui.balance,
-      state.account.balance !== null &&
-      state.account.balance !== undefined
-        ? `${money(state.account.balance)} ${state.account.currency || "USD"}`
-        : "--"
-    );
-
-
-    return true;
-
-
-  } catch (error) {
-
-    console.error(
-      "Account error:",
-      error
-    );
-
-    setAccountStatus(
-      "Unable to load account"
-    );
-
-    setTradeMessage(
-      error.message
-    );
-
-    return false;
-
-  }
-
-}
-
-
-/* =========================================================
-   LOGIN / LOGOUT UI
-========================================================= */
-
-function showLoggedIn() {
-
-  if (ui.loginBtn) {
-    ui.loginBtn.style.display =
-      "none";
-  }
-
-  if (ui.logoutBtn) {
-    ui.logoutBtn.style.display =
-      "";
-  }
-
-}
-
-
-function showLoggedOut() {
-
-  if (ui.loginBtn) {
-    ui.loginBtn.style.display =
-      "";
-  }
-
-  if (ui.logoutBtn) {
-    ui.logoutBtn.style.display =
-      "none";
-  }
-
-  setAccountStatus(
-    "Log in first"
-  );
-
-  setText(
-    ui.accountId,
-    "--"
-  );
-
-  setText(
-    ui.balance,
-    "--"
-  );
-
-  disableBuy(
-    "Trading is disabled until the secure account connection is verified."
-  );
-
-}
-
-
-async function logout() {
-
-  try {
-
-    await fetch(
-      "/logout",
-      {
-        method: "POST",
-        credentials: "same-origin"
-      }
-    );
-
-  } catch (error) {
-
-    console.error(
-      "Logout error:",
-      error
-    );
-
-  }
-
-
-  closeTradingSocket();
-  closePublicSocket();
-
-
-  state.loggedIn =
-    false;
-
-  state.account =
-    null;
-
-  state.proposal =
-    null;
-
-  state.proposalId =
-    null;
-
-  state.askPrice =
-    0;
-
-  state.payout =
-    0;
-
-
-  showLoggedOut();
-
-
-  setConnectionStatus(
-    "Logged out"
-  );
-
-}
-
-
-/* =========================================================
-   PUBLIC MARKET SOCKET
-========================================================= */
-
-function getPublicWsUrl() {
-
-  const appId =
-    state.config &&
-    state.config.app_id;
-
-
-  if (appId) {
-
-    return (
-      PUBLIC_WS_BASE +
-      "?app_id=" +
-      encodeURIComponent(appId)
-    );
-
-  }
-
-
-  return PUBLIC_WS_BASE;
-
-}
-
-
-function connectPublicSocket() {
-
-  closePublicSocket();
-
-
-  let url;
-
-  try {
-
-    url =
-      getPublicWsUrl();
-
-    state.publicSocket =
-      new WebSocket(url);
-
-  } catch (error) {
-
-    console.error(
-      "Public WebSocket error:",
-      error
-    );
-
-    setConnectionStatus(
-      "Unable to open market connection."
-    );
-
-    return;
-
-  }
-
-
-  state.publicSocket.onopen =
-    function () {
-
-      state.publicSocketReady =
-        true;
-
-
-      setConnectionStatus(
-        state.loggedIn
-          ? "Connected to Deriv ✓"
-          : "Market feed connected"
-      );
-
-
-      requestMarkets();
-
-    };
-
-
-  state.publicSocket.onmessage =
-    function (event) {
-
-      handlePublicMessage(
-        event.data
-      );
-
-    };
-
-
-  state.publicSocket.onerror =
-    function (error) {
-
-      console.error(
-        "Public WebSocket error:",
-        error
-      );
-
-      state.publicSocketReady =
-        false;
-
-
-      setConnectionStatus(
-        "Market connection error"
-      );
-
-    };
-
-
-  state.publicSocket.onclose =
-    function () {
-
-      state.publicSocketReady =
-        false;
-
-
-      if (state.loggedIn) {
-
-        setConnectionStatus(
-          "Market connection closed"
-        );
-
-      }
-
-    };
-
-}
-
-
-/* =========================================================
-   REQUEST MARKETS
-========================================================= */
-
-function requestMarkets() {
-
-  if (
-    !state.publicSocketReady
-  ) {
-    return;
-  }
-
-
-  send(
-    state.publicSocket,
-    {
-      active_symbols: "brief",
-      req_id: nextRequestId()
-    }
-  );
-
-}
-
-
-/* =========================================================
-   HANDLE PUBLIC MESSAGES
-========================================================= */
-
-function handlePublicMessage(raw) {
-
-  let data;
-
-  try {
-    data = JSON.parse(raw);
-  } catch (error) {
-    console.error("Invalid public message:", raw);
-    return;
-  }
-
-  if (data.error) {
-    console.error("Public API error:", data.error);
-
-    const errorMessage =
-      data.error.message ||
-      "Deriv market error.";
-
-    setTradeMessage("Deriv error: " + errorMessage);
-
-    return;
-  }
-
-  // Receive the available markets
-  if (
-    data.msg_type === "active_symbols" &&
-    Array.isArray(data.active_symbols)
-  ) {
-    handleMarkets(data.active_symbols);
-    return;
-  }
-
-  // Receive live market prices
-  if (
-    data.msg_type === "tick" &&
-    data.tick
-  ) {
-    handleTick(data.tick);
-    return;
-  }
-
-}
-
-  
-
-/* =========================================================
-   MARKETS
-========================================================= */
-
-function handleMarkets(markets) {
-
-  if (!Array.isArray(markets)) {
-
-    setText(
-      ui.marketCount,
-      "0 markets loaded"
-    );
-
-    setTradeMessage(
-      "No markets returned by Deriv."
-    );
-
-    return;
-
-  }
-
-
-  const usableMarkets =
-    markets
-      .filter(
-        market =>
-          market &&
-          (
-            market.underlying_symbol ||
-            market.symbol
-          )
-      )
-      .map(
-        market => {
-
-          const symbol =
-            market.underlying_symbol ||
-            market.symbol;
-
-
-          const name =
-            market.underlying_symbol_name ||
-            market.display_name ||
-            market.name ||
-            symbol;
-
-
-          return {
-            symbol,
-            name,
-            raw: market
-          };
-
-        }
-      );
-
-
-  const unique =
-    new Map();
-
-
-  for (
-    const market of usableMarkets
-  ) {
-
-    if (
-      !unique.has(
-        market.symbol
-      )
-    ) {
-
-      unique.set(
-        market.symbol,
-        market
-      );
-
-    }
-
-  }
-
-
-  state.markets =
-    Array.from(
-      unique.values()
-    );
-
-
-  setText(
-    ui.marketCount,
-    `${state.markets.length} markets loaded`
-  );
-
-
-  populateMarketSelect();
-
-
-  if (
-    !state.selectedSymbol &&
-    state.markets.length
-  ) {
-
-    const preferred =
-      state.markets.find(
-        market =>
-          market.symbol ===
-          "1HZ100V"
-      );
-
-
-    selectMarket(
-      preferred ||
-      state.markets[0]
-    );
-     }
-
-}
-
-
-/* =========================================================
-   MARKET SELECT
-========================================================= */
-
-function populateMarketSelect() {
-
-  if (!ui.marketSelect) {
-    return;
-  }
-
-
-  ui.marketSelect.innerHTML =
-    "";
-
-
-  for (
-    const market of state.markets
-  ) {
-
-    const option =
-      document.createElement(
-        "option"
-      );
-
-
-    option.value =
-      market.symbol;
-
-
-    option.textContent =
-      market.name;
-
-
-    ui.marketSelect.appendChild(
-      option
-    );
-
-  }
-
-
-  if (
-    state.selectedSymbol
-  ) {
-
-    ui.marketSelect.value =
-      state.selectedSymbol;
-
-  }
-
-}
-
-
-/* =========================================================
-   SELECT MARKET
-========================================================= */
-
-function selectMarket(market) {
-
-  if (!market) {
-    return;
-  }
-
-
-  state.selectedSymbol =
-    market.symbol;
-
-
-  state.selectedMarketName =
-    market.name;
-
-
-  if (ui.marketSelect) {
-
-    ui.marketSelect.value =
-      market.symbol;
-
-  }
-
-
-  setText(
-    ui.marketName,
-    market.name
-  );
-
-
-  setText(
-    ui.livePrice,
-    "--"
-  );
-
-
-  setText(
-    ui.priceMessage,
-    "Waiting for prices..."
-  );
-
-
-  subscribeToPrice();
-
-
-  requestQuote();
-
-}
-
-
-/* =========================================================
-   PRICE SUBSCRIPTION
-========================================================= */
-
-function subscribeToPrice() {
-
-  if (
-    !state.publicSocketReady ||
-    !state.selectedSymbol
-  ) {
-
-    return;
-
-  }
-
-
-  send(
-    state.publicSocket,
-    {
-      ticks: state.selectedSymbol,
-      subscribe: 1,
-      req_id: nextRequestId()
-    }
-  );
-
-}
-
-
-/* =========================================================
-   HANDLE TICK
-========================================================= */
-
-function updateLiveDigit(price) {
-
-  const formattedPrice =
-    Number(price).toFixed(2);
-
-  const digits =
-    formattedPrice.replace(/\D/g, "");
-
-  const lastDigit =
-    digits.length > 0
-      ? digits[digits.length - 1]
-      : "--";
-
-  setText(
-    ui.liveDigit,
-    lastDigit
-  );
-
-  if (!Array.isArray(state.liveDigitHistory)) {
-    state.liveDigitHistory = [];
-  }
-
-  state.liveDigitHistory.push(lastDigit);
-
-  if (state.liveDigitHistory.length > 20) {
-    state.liveDigitHistory.shift();
-  }
-
-  if (ui.liveDigitHistory) {
-
-    ui.liveDigitHistory.innerHTML =
-      state.liveDigitHistory
-        .map(function(digit) {
-          return (
-            '<span style="' +
-            'display:inline-flex;' +
-            'align-items:center;' +
-            'justify-content:center;' +
-            'min-width:30px;' +
-            'height:30px;' +
-            'border-radius:6px;' +
-            'background:#263244;' +
-            'color:#ffffff;' +
-            'font-weight:bold;' +
-            'padding:0 6px;' +
-            '">' +
-            digit +
-            '</span>'
-          );
-        })
-        .join("");
-
-  }
-     }
-      
-
-function handleTick(tick) {
-
-  if (!tick) {
-    return;
-  }
-
-  const symbol =
-    tick.underlying_symbol ||
-    tick.symbol;
-
-  if (
-    symbol &&
-    state.selectedSymbol &&
-    symbol !== state.selectedSymbol
-  ) {
-    return;
-  }
-
-  const quote = Number(tick.quote);
-
-  if (!Number.isFinite(quote)) {
-    return;
-  }
-
-  state.livePrice = quote;
-
-  setText(ui.livePrice, quote);
-
-  // Update the live price chart and existing analysis
-  updateLiveChart(quote);
-
-  // Update the live digit display
-  updateLiveDigit(quote);
-
-  setText(
-    ui.priceMessage,
-    "Live price ✓"
-  );
-     }
-   
-/* =========================================================
-   TRADING SOCKET
-========================================================= */
-
-async function connectTradingSocket() {
-
-  if (!state.loggedIn) {
-
-    disableBuy(
-      "Log in first."
-    );
-
-    return false;
-
-  }
-
-
-  if (
-    state.tradingSocketReady
-  ) {
-
-    return true;
-
-  }
-
-
-  if (
-    state.connectingTrading
-  ) {
-
-    return false;
-
-  }
-
-
-  state.connectingTrading =
-    true;
-
-
-  setTradeMessage(
-    "Creating secure trading connection..."
-  );
-
-
-  try {
-
-    const response =
-      await fetch(
-        "/api/trading-connection",
-        {
-          cache: "no-store",
-          credentials: "same-origin"
-        }
-      );
-
-
-    const data =
-      await response.json();
-
-
-    if (
-      response.status === 401
-    ) {
-
-      state.loggedIn =
-        false;
-
-      showLoggedOut();
-
-      throw new Error(
-         "Deriv authentication expired."
-      );
-
-    }
-
-
-    if (
-      !response.ok
-    ) {
-
-      throw new Error(
-        data.error ||
-        "Unable to create trading connection."
-      );
-
-    }
-
-
-    if (!data.ws_url) {
-
-      throw new Error(
-        "Deriv did not return a trading WebSocket URL."
-      );
-
-    }
-
-
-    await openTradingSocket(
-      data.ws_url
-    );
-
-
-    return true;
-
-
-  } catch (error) {
-
-    console.error(
-      "Trading connection error:",
-      error
-    );
-
-
-    setTradeMessage(
-      error.message ||
-      "Trading connection failed."
-    );
-
-
-    disableBuy(
-      "Trading connection is not ready."
-    );
-
-
-    return false;
-
-
-  } finally {
-
-    state.connectingTrading =
-      false;
-
-  }
-
-}
-
-
-/* =========================================================
-   OPEN TRADING SOCKET
-========================================================= */
-
-function openTradingSocket(url) {
-
-  return new Promise(
-    function (resolve, reject) {
-
-      closeTradingSocket();
-
-
-      let socket;
-
-
-      try {
-
-        socket =
-          new WebSocket(url);
-
-      } catch (error) {
-
-        reject(error);
-
-        return;
-
-      }
-
-
-      state.tradingSocket =
-        socket;
-
-
-      let settled =
-        false;
-
-
-      const timeout =
-        setTimeout(
-          function () {
-
-            if (!settled) {
-
-              settled =
-                true;
-
-              try {
-                socket.close();
-              } catch (_) {}
-
-              reject(
-                new Error(
-                  "Trading connection timed out."
-                )
-              );
-
-            }
-
-          },
-          15000
-        );
-       socket.onopen =
-        function () {
-
-          state.tradingSocketReady =
-            true;
-
-
-          if (!settled) {
-
-            settled =
-              true;
-
-            clearTimeout(
-              timeout
-            );
-
-            resolve(true);
-
-          }
-
-
-          setTradeMessage(
-            "Secure trading connection ready ✓"
-          );
-
-
-          requestTradingBalance();
-
-          requestQuote();
-
-        };
-
-
-      socket.onmessage =
-        function (event) {
-
-          handleTradingMessage(
-            event.data
-          );
-
-        };
-
-
-      socket.onerror =
-        function (error) {
-
-          console.error(
-            "Trading WebSocket error:",
-            error
-          );
-
-
-          state.tradingSocketReady =
-            false;
-
-
-          if (!settled) {
-
-            settled =
-              true;
-
-            clearTimeout(
-              timeout
-            );
-
-           }
-
-        };
-
-
-      socket.onclose =
-        function () {
-
-          state.tradingSocketReady =
-            false;
-
-          if (state.loggedIn) {
-
-            disableBuy(
-              "Trading connection closed."
-            );
-
-          }
-
-        };
-
-    }
-  );
-
-}
-
-
-/* =========================================================
-   TRADING BALANCE
-========================================================= */
-
-function requestTradingBalance() {
-
-  if (
-    !state.tradingSocketReady
-  ) {
-    return;
-  }
-
-  send(
-    state.tradingSocket,
-    {
-      balance: 1,
-      subscribe: 1,
-      req_id: nextRequestId()
-    }
-  );
-
-}
-
-
-/* =========================================================
-   HANDLE TRADING MESSAGES
-========================================================= */
-
-function handleTradingMessage(raw) {
-
-  let data;
-
-  try {
-
-    data =
-      JSON.parse(raw);
-
-  } catch (error) {
-
-    console.error(
-      "Invalid trading message:",
-      raw
-    );
-
-    return;
-
-  }
-
-
-  if (data.error) {
-             console.error(
-      "Trading API error:",
-      data.error
-    );
-
-    setTradeMessage(
-      data.error.message ||
-      "Deriv trading error."
-    );
-
-    state.proposal =
-      null;
-
-    state.proposalId =
-      null;
-
-    state.askPrice =
-      0;
-
-    state.payout =
-      0;
-
-    updateQuoteDisplay();
-
-    return;
-
-  }
-
-
-  switch (
-    data.msg_type
-  ) {
-
-    case "balance":
-
-      handleBalance(
-        data.balance
-      );
-
-      break;
-
-
-    case "proposal":
-
-      handleProposal(
-        data.proposal
-      );
-
-      break;
-
-
-    case "buy":
-
-      handleBuy(
-        data.buy
-      );
-
-      break;
-
-
-    case "proposal_open_contract":
-
-      handleOpenContract(
-        data.proposal_open_contract
-      );
-
-      break;
-
-
-    case "transaction":
-
-      handleTransaction(
-        data.transaction
-      );
-
-      break;
-
-
-    default:
-
-      break;
-
-  }
-
-}
-
-
-/* =========================================================
-   BALANCE UPDATE
-========================================================= */
-
-function handleBalance(balance) {
-
-  if (!balance) {
-    return;
-  }
-
-
-  const value =
-    Number(
-      balance.balance
-    );
-
-
-  if (
-    Number.isFinite(value)
-  ) {
-
-    setText(
-      ui.balance,
-      `${money(value)} ${balance.currency || "USD"}`
-    );
-
-
-    if (state.account) {
-      state.account.balance =
-        value;
-
-      state.account.currency =
-        balance.currency ||
-        state.account.currency ||
-        "USD";
-
-    }
-
-  }
-
-}
-
-
-/* =========================================================
-   REQUEST QUOTE
-========================================================= */
-
-
-
-function requestQuote() {
-
+function invalidateQuote(message = "Requesting a fresh quote...") {
   clearTimeout(state.quoteTimer);
 
   state.proposal = null;
   state.proposalId = null;
   state.askPrice = 0;
   state.payout = 0;
+  state.quoteExpiresAt = 0;
+  state.pendingProposalReqId = null;
 
-  updateQuoteDisplay();
+  setText(ui.askPrice, "--");
+  setText(ui.payout, "--");
+  setText(ui.quoteStatus, message);
 
-  if (!state.selectedSymbol) {
-    setQuoteStatus("Select a market.");
-    return;
-  }
-
-  const amount = getAmount();
-  const duration = getDuration();
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    setQuoteStatus("Enter a valid trade amount.");
-    return;
-  }
-
-  if (!Number.isInteger(duration) || duration <= 0) {
-    setQuoteStatus("Enter a valid duration.");
-    return;
-  }
-
-  if (!state.tradingSocketReady) {
-    setQuoteStatus("Connecting secure trading account...");
-    connectTradingSocket();
-    return;
-  }
-
-  const contractType = state.contractType || (
-    state.direction === "RISE" ? "CALL" : "PUT"
-  );
-
-  const proposalRequest = {
-    proposal: 1,
-    amount: amount,
-    basis: "stake",
-    contract_type: contractType,
-    currency: "USD",
-    duration: duration,
-    duration_unit: state.durationUnit,
-    underlying_symbol: state.selectedSymbol,
-    req_id: nextRequestId()
-  };
-
-  if (
-    contractType === "DIGITOVER" ||
-    contractType === "DIGITUNDER"
-  ) {
-    const barrier = Number(
-      ui.barrier ? ui.barrier.value : 5
-    );
-
-    if (!Number.isInteger(barrier) || barrier < 0 || barrier > 9) {
-      setQuoteStatus("Select a valid barrier digit.");
-      return;
-    }
-
-    if (
-      contractType === "DIGITOVER" && barrier >= 9
-    ) {
-      setQuoteStatus("For Over, choose a barrier from 0 to 8.");
-      return;
-    }
-
-    if (
-      contractType === "DIGITUNDER" && barrier <= 0
-    ) {
-      setQuoteStatus("For Under, choose a barrier from 1 to 9.");
-      return;
-    }
-
-    proposalRequest.barrier = String(barrier);
-  }
-
-  setQuoteStatus("Requesting quote...");
-
-  send(state.tradingSocket, proposalRequest);
-
-  state.quoteTimer = setTimeout(function () {
-    if (!state.proposalId) {
-      setQuoteStatus("Quote timed out. Try again.");
-    }
-  }, 10000);
-     }
-       
-
-/* =========================================================
-   HANDLE PROPOSAL
-========================================================= */
-
-function handleProposal(proposal) {
-
-  if (!proposal) {
-    return;
-  }
-
-
-  clearTimeout(
-    state.quoteTimer
-  );
-
-
-  state.proposal =
-    proposal;
-
-
-  state.proposalId =
-    proposal.id ||
-    proposal.proposal_id ||
-    null;
-
-
-  state.askPrice =
-    Number(
-      proposal.ask_price ??
-      proposal.price ??
-      proposal.display_value ??
-      0
-    );
-
-
-  state.payout =
-    Number(
-      proposal.payout ??
-      0
-    );
-
-
-  updateQuoteDisplay();
-
-
-  if (
-    state.proposalId &&
-    state.askPrice > 0
-  ) {
-
-    setQuoteStatus(
-      "Quote received ✓"
-    );
-
-    enableBuy();
-
-  } else {
-
-    setQuoteStatus(
-      "Quote received but is incomplete."
-    );
-
-    disableBuy(
-      "Waiting for a valid quote."
-    );
-
-  }
-
+  updateBuyButton();
 }
 
+function updateBuyButton() {
+  const validQuote =
+    Boolean(state.proposalId) &&
+    state.quoteExpiresAt > Date.now();
 
-/* =========================================================
-   QUOTE DISPLAY
-========================================================= */
+  const correctAccount =
+    state.account &&
+    (
+      state.account.account_type === "demo" ||
+      (
+        state.account.account_type === "real" &&
+        state.config?.real_trading_enabled === true
+      )
+    );
 
-function updateQuoteDisplay() {
-
-  setText(
-    ui.askPrice,
-    state.askPrice > 0
-      ? money(state.askPrice)
-      : "--"
-  );
-
-
-  setText(
-    ui.payout,
-    state.payout > 0
-      ? money(state.payout)
-      : "--"
-  );
-
-}
-
-
-/* =========================================================
-   BUY BUTTON
-========================================================= */
-
-function enableBuy() {
-
-  if (!ui.buyBtn) {
-    return;
-  }
-
-
-  if (
-    !state.loggedIn ||
-    !state.tradingSocketReady ||
-    !state.proposalId ||
-    !state.askPrice
-  ) {
-
-    return;
-
-  }
-
-
-  ui.buyBtn.disabled =
-    false;
-
-
-  ui.buyBtn.textContent =
-    "CONFIRM BUY";
-
-}
-
-
-function disableBuy(message) {
+  const enabled =
+    state.loggedIn &&
+    state.tradingReady &&
+    correctAccount &&
+    validQuote &&
+    !state.buying;
 
   if (ui.buyBtn) {
-
-    ui.buyBtn.disabled =
-      true;
-
-    ui.buyBtn.textContent =
-      "CONFIRM BUY";
-
+    ui.buyBtn.disabled = !enabled;
   }
-
-
-  if (message) {
-
-    setTradeMessage(
-      message
-    );
-
-  }
-
 }
 
-
 /* =========================================================
-   GET AMOUNT
+   SERVER CONFIG AND ACCOUNT
 ========================================================= */
 
-function getAmount() {
+async function loadConfig() {
+  try {
+    const response = await fetch("/api/config", {
+      cache: "no-store",
+      credentials: "same-origin"
+    });
 
-  const value =
-    Number(
-      ui.amount
-        ? ui.amount.value
-        : state.amount
-    );
-
-  return value;
-
-}
-
-
-/* =========================================================
-   GET DURATION
-========================================================= */
-
-function getDuration() {
-
-  const value =
-    Number(
-      ui.duration
-        ? ui.duration.value
-        : state.duration
-    );
-
-  return value;
-
-}
-
-
-/* =========================================================
-   EXECUTE BUY
-========================================================= */
-
-
-async function executeBuy() {
-
-  if (!state.loggedIn) {
-    setTradeMessage("Please log in with Deriv first.");
-    return;
-  }
-
-  if (!state.tradingSocketReady) {
-    setTradeMessage("Secure trading connection is not ready.");
-    return;
-  }
-
-  if (!state.proposalId) {
-    setTradeMessage("No valid quote is available.");
-    return;
-  }
-
-  if (!state.askPrice || state.askPrice <= 0) {
-    setTradeMessage("Invalid quote price.");
-    return;
-  }
-
-  const amount = getAmount();
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    setTradeMessage("Enter a valid trade amount.");
-    return;
-  }
-
-  const contractType = state.contractType || (
-    state.direction === "RISE" ? "CALL" : "PUT"
-  );
-
-  const contractLabels = {
-    CALL: "RISE",
-    PUT: "FALL",
-    DIGITEVEN: "EVEN",
-    DIGITODD: "ODD",
-    DIGITOVER: "OVER",
-    DIGITUNDER: "UNDER"
-  };
-
-  const contractLabel =
-    contractLabels[contractType] || contractType;
-
-  const barrierText =
-    contractType === "DIGITOVER" ||
-    contractType === "DIGITUNDER"
-      ? "\nBarrier: " +
-        (ui.barrier ? ui.barrier.value : "5")
-      : "";
-
-  const confirmed = window.confirm(
-    `Confirm ${contractLabel} trade?\n\n` +
-    `Market: ${state.selectedMarketName}\n` +
-    `Duration: ${getDuration()} ${state.durationUnit}\n` +
-    `Amount: ${money(amount)} USD\n` +
-    `Ask price: ${money(state.askPrice)} USD\n` +
-    `Payout: ${money(state.payout)} USD` +
-    barrierText
-  );
-
-  if (!confirmed) {
-    showStatus("Trade cancelled.");
-    return;
-  }
-
-  if (!ui.buyBtn) {
-    setTradeMessage("Buy button was not found.");
-    return;
-  }
-
-  ui.buyBtn.disabled = true;
-  ui.buyBtn.textContent = "BUYING...";
-
-  setTradeMessage("Submitting buy request...");
-
-  const sent = send(
-    state.tradingSocket,
-    {
-      buy: String(state.proposalId),
-      price: state.askPrice,
-      req_id: nextRequestId()
+    if (!response.ok) {
+      throw new Error("Unable to load server configuration.");
     }
-  );
 
-  if (!sent) {
-    ui.buyBtn.disabled = false;
-    ui.buyBtn.textContent = "CONFIRM BUY";
-    setTradeMessage("Unable to send buy request.");
-    return;
-  }
-}
+    state.config = await response.json();
 
-/* =========================================================
-   HANDLE BUY RESPONSE
-========================================================= */
+    // Never enable real trading from the browser alone.
+    if (
+      ui.accountType &&
+      state.config.real_trading_enabled !== true
+    ) {
+      const realOption = Array.from(ui.accountType.options)
+        .find(option => option.value === "real");
 
-function handleBuy(buy) {
-
-  if (!buy) {
-    setTradeMessage("Buy request returned no contract.");
-    enableBuy();
-    return;
-  }
-
-  const contractId =
-    buy.contract_id || buy.id || null;
-
-  const buyPrice = Number(
-    buy.buy_price ?? buy.price ?? state.askPrice
-  );
-
-  const payout = Number(
-    buy.payout ?? state.payout ?? 0
-  );
-
-  if (!contractId) {
-    setTradeMessage(
-      "Buy response did not contain a contract ID."
-    );
-    enableBuy();
-    return;
-  }
-
-  const contractType = state.contractType || (
-    state.direction === "RISE" ? "CALL" : "PUT"
-  );
-
-  const contractLabels = {
-    CALL: "RISE",
-    PUT: "FALL",
-    DIGITEVEN: "EVEN",
-    DIGITODD: "ODD",
-    DIGITOVER: "OVER",
-    DIGITUNDER: "UNDER"
-  };
-
-  const contract = {
-    contract_id: String(contractId),
-
-    symbol: state.selectedSymbol,
-
-    symbol_name: state.selectedMarketName,
-
-    direction:
-      contractLabels[contractType] || contractType,
-
-    contract_type: contractType,
-
-    barrier:
-      contractType === "DIGITOVER" ||
-      contractType === "DIGITUNDER"
-        ? Number(ui.barrier ? ui.barrier.value : 5)
-        : null,
-
-    buy_price: buyPrice,
-
-    payout: payout,
-
-    profit: null,
-
-    status: "open",
-
-    start_time: Date.now()
-  };
-
-  state.activeContracts.set(
-    String(contractId),
-    contract
-  );
-
-  setTradeMessage(
-    `Trade opened ✓ ${contract.direction} — Contract ${contractId}`
-  );
-
-  renderOpenContracts();
-
-  subscribeContract(contractId);
-
-  updatePerformance();
-
-  requestTradingBalance();
-
-  state.proposal = null;
-  state.proposalId = null;
-  state.askPrice = 0;
-  state.payout = 0;
-
-  updateQuoteDisplay();
-
-  disableBuy(
-    "Trade opened. Waiting for result..."
-  );
-
-  setQuoteStatus("Trade opened ✓");
-     }
-     
-/* =========================================================
-   SUBSCRIBE CONTRACT
-========================================================= */
-
-function subscribeContract(
-  contractId
-) {
-
-  if (
-    !state.tradingSocketReady
-  ) {
-    return;
-  }
-
-
-  send(
-    state.tradingSocket,
-    {
-      proposal_open_contract: 1,
-      contract_id:
-        String(contractId),
-      subscribe: 1,
-      req_id:
-        nextRequestId()
+      if (realOption) {
+        realOption.disabled = true;
+      }
     }
-  );
 
-}
-
-
-/* =========================================================
-   HANDLE OPEN CONTRACT
-========================================================= */
-
-function handleOpenContract(contract) {
-
-  if (!contract) {
-    return;
-  }
-
-
-  const contractId =
-    String(
-      contract.contract_id ||
-      contract.id ||
-      ""
-    );
-
-
-  if (!contractId) {
-    return;
-  }
-
-
-  let local =
-    state.activeContracts.get(
-      contractId
-    );
-
-
-  if (!local) {
-
-    local = {
-
-      contract_id:
-        contractId,
-
-      symbol:
-        contract.underlying_symbol ||
-        contract.symbol ||
-        state.selectedSymbol,
-
-      symbol_name:
-        contract.underlying_symbol_name ||
-        state.selectedMarketName,
-
-      direction:
-        contract.contract_type === "PUT"
-          ? "FALL"
-          : "RISE",
-
-      contract_type:
-        contract.contract_type ||
-        "",
-
-      buy_price:
-        Number(
-          contract.buy_price ||
-          contract.purchase_price ||
-          0
-        ),
-
-      payout:
-        Number(
-          contract.payout ||
-          0
-        ),
-
-      profit:
-        contract.profit !== undefined
-          ? Number(contract.profit)
-          : null,
-
-      status:
-        contract.status ||
-        "open"
-
-    };
-
-  }
-
-
-  Object.assign(
-    local,
-    {
-
-      symbol:
-        contract.underlying_symbol ||
-        contract.symbol ||
-        local.symbol,
-
-      symbol_name:
-        contract.underlying_symbol_name ||
-        local.symbol_name,
-
-      buy_price:
-        Number(
-          contract.buy_price ??
-          local.buy_price ??
-          0
-        ),
-
-      payout:
-        Number(
-          contract.payout ??
-          local.payout ??
-          0
-        ),
-
-      profit:
-        contract.profit !== undefined &&
-        contract.profit !== null
-          ? Number(contract.profit)
-          : local.profit,
-
-      status:
-        contract.status ||
-        local.status ||
-        "open",
-
-      current_spot:
-        contract.current_spot ??
-        local.current_spot,
-
-      entry_spot:
-        contract.entry_tick ??
-        contract.entry_spot ??
-        local.entry_spot,
-
-      exit_spot:
-        contract.exit_tick ??
-        contract.exit_spot ??
-        local.exit_spot
-
-    }
-  );
-
-
-  if (
-    contractIsFinished(
-      local
-    )
-  ) {
-
-    finishContract(
-      local
-    );
-
-  } else {
-
-    state.activeContracts.set(
-      contractId,
-      local
-    );
-
-    renderOpenContracts();
-
-  }
-
-}
-
-
-/* =========================================================
-   CONTRACT FINISHED CHECK
-========================================================= */
-
-function contractIsFinished(contract) {
-
-  if (!contract) {
+    return true;
+  } catch (error) {
+    console.error(error);
+    setText(ui.connectionStatus, "Server configuration unavailable.");
     return false;
   }
+}
 
+async function checkSession() {
+  try {
+    const response = await fetch("/api/session", {
+      cache: "no-store",
+      credentials: "same-origin"
+    });
 
-  const status =
-    String(
-      contract.status ||
-      ""
-    ).toLowerCase();
+    if (!response.ok) return false;
 
+    const data = await response.json();
+    state.loggedIn = Boolean(data.authenticated);
 
-  return (
-    status === "sold" ||
-    status === "won" ||
-    status === "lost" ||
-    status === "expired" ||
+    return state.loggedIn;
+  } catch (error) {
+    console.error("Session check:", error);
+    return false;
+  }
+}
+
+async function loadAccount() {
+  if (!state.loggedIn) return false;
+
+  setText(ui.accountStatus, "Checking account...");
+
+  try {
+    const response = await fetch("/api/account", {
+      cache: "no-store",
+      credentials: "same-origin"
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Account request failed.");
+    }
+
+    if (!data.account) {
+      throw new Error("No Deriv trading account was returned.");
+    }
+
+    state.account = data.account;
+
+    setText(ui.accountStatus, "Connected to Deriv ✓");
+    setText(ui.accountId, state.account.account_id || state.account.id);
+    setText(
+      ui.balance,
+      `${money(state.account.balance)} ${state.account.currency || "USD"}`
+    );
+
+    // Reflect the actual server-selected account.
+    if (ui.accountType) {
+      ui.accountType.value =
+        state.account.account_type || "demo";
+    }
+
+    setText(
+      ui.accountTypeMessage,
+      `Connected account: ${state.account.account_type || "unknown"}`
+    );
+
+    return true;
+  } catch (error) {
+    console.error("Account error:", error);
+    setText(ui.accountStatus, "Account unavailable");
+    showMessage(error.message);
+    return false;
+  }
+}
+
+function showLoggedIn() {
+  if (ui.loginBtn) ui.loginBtn.style.display = "none";
+  if (ui.logoutBtn) ui.logoutBtn.hidden = false;
+}
+
+function showLoggedOut() {
+  if (ui.loginBtn) ui.loginBtn.style.display = "";
+  if (ui.logoutBtn) ui.logoutBtn.hidden = true;
+
+  setText(ui.accountStatus, "Log in first");
+  setText(ui.accountId, "--");
+  setText(ui.balance, "--");
+
+  invalidateQuote("Log in to request a quote.");
+}
+
+async function logout() {
+  try {
+    await fetch("/logout", {
+      method: "POST",
+      credentials: "same-origin"
+    });
+  } catch (error) {
+    console.error("Logout:", error);
+  }
+
+  closeSocket(state.tradingSocket);
+  closeSocket(state.publicSocket);
+
+  state.loggedIn = false;
+  state.account = null;
+  state.tradingReady = false;
+  state.publicReady = false;
+  state.activeContracts.clear();
+
+  showLoggedOut();
+
+  setText(ui.connectionStatus, "Logged out");
+}
+
+/* =========================================================
+   SOCKET MANAGEMENT
+========================================================= */
+
+function closeSocket(socket) {
+  if (socket) {
+    try {
+      socket.onclose = null;
+      socket.close();
+    } catch (_) {}
+  }
+}
+
+function connectPublicSocket() {
+  if (
+    state.publicSocket &&
     (
-      contract.profit !== null &&
-      contract.profit !== undefined
+      state.publicSocket.readyState === WebSocket.OPEN ||
+      state.publicSocket.readyState === WebSocket.CONNECTING
     )
-  );
+  ) {
+    return;
+  }
 
+  const appId = state.config?.app_id;
+
+  const url = appId
+    ? `${PUBLIC_WS_BASE}?app_id=${encodeURIComponent(appId)}`
+    : PUBLIC_WS_BASE;
+
+  setText(ui.connectionStatus, "Connecting to market data...");
+
+  const socket = new WebSocket(url);
+  state.publicSocket = socket;
+
+  socket.onopen = () => {
+    if (state.publicSocket !== socket) return;
+
+    state.publicReady = true;
+    setText(ui.connectionStatus, "Market data connected");
+
+    send(socket, {
+      active_symbols: "brief",
+      product_type: "basic",
+      req_id: nextId()
+    });
+  };
+
+  socket.onmessage = event => {
+    if (state.publicSocket !== socket) return;
+
+    let data;
+
+    try {
+      data = JSON.parse(event.data);
+    } catch (_) {
+      return;
+    }
+
+    handlePublicMessage(data);
+  };
+
+  socket.onerror = error => {
+    console.error("Public WebSocket error:", error);
+  };
+
+  socket.onclose = () => {
+    if (state.publicSocket !== socket) return;
+
+    state.publicReady = false;
+    setText(ui.connectionStatus, "Market data disconnected");
+
+    clearTimeout(state.reconnectTimer);
+
+    state.reconnectTimer = setTimeout(() => {
+      connectPublicSocket();
+    }, 3000);
+  };
 }
 
-
-/* =========================================================
-   FINISH CONTRACT
-========================================================= */
-
-function finishContract(contract) {
-
-  const id =
-    String(
-      contract.contract_id
-    );
-
-
-  state.activeContracts.delete(
-    id
-  );
-
-
-  if (
-    state.finishedContracts.has(
-      id
-    )
-  ) {
-
+function handlePublicMessage(data) {
+  if (data.error) {
+    console.error("Market API error:", data.error.message);
+    setText(ui.priceMessage, data.error.message);
     return;
-
   }
 
+  const symbols =
+    data.active_symbols ||
+    data.data?.active_symbols;
 
-  state.finishedContracts.set(
-    id,
-    contract
+  if (Array.isArray(symbols)) {
+    state.markets = symbols.filter(item =>
+      item.underlying_symbol || item.symbol
+    );
+
+    populateMarkets();
+    return;
+  }
+
+  const tick =
+    data.tick ||
+    data.data?.tick;
+
+  if (tick) {
+    processTick(tick);
+  }
+}
+
+function populateMarkets() {
+  if (!ui.marketSelect) return;
+
+  const previous = state.selectedSymbol;
+
+  ui.marketSelect.replaceChildren();
+
+  state.markets.forEach(market => {
+    const symbol =
+      market.underlying_symbol || market.symbol;
+
+    const name =
+      market.underlying_symbol_name ||
+      market.display_name ||
+      symbol;
+
+    const option = document.createElement("option");
+    option.value = symbol;
+    option.textContent = name;
+
+    ui.marketSelect.appendChild(option);
+  });
+
+  setText(ui.marketCount, `${state.markets.length} markets loaded`);
+
+  if (!state.markets.length) {
+    setText(ui.priceMessage, "No markets were returned.");
+    return;
+  }
+
+  const selectedExists = state.markets.some(m =>
+    (m.underlying_symbol || m.symbol) === previous
   );
 
-
-  const profit =
-    Number(
-      contract.profit
-    );
-
-
-  if (
-    Number.isFinite(profit)
-  ) {
-
-    state.performance.profit +=
-      profit;
-
-
-    if (profit > 0) {
-
-      state.performance.wins +=
-        1;
-
-    } else if (profit < 0) {
-
-      state.performance.losses +=
-        1;
-       }
-
-  }
-
-
-  renderOpenContracts();
-  renderTradeHistory();
-  updatePerformance();
-
-
-  const status =
-    String(
-      contract.status ||
-      ""
-    ).toLowerCase();
-
-
-  if (
-    profit > 0 ||
-    status === "won"
-  ) {
-
-    setTradeMessage(
-      `Trade won ✓ Profit ${money(profit)} USD`
-    );
-
-  } else if (
-    profit < 0 ||
-    status === "lost"
-  ) {
-
-    setTradeMessage(
-      `Trade lost. Result ${money(profit)} USD`
-    );
-
+  if (selectedExists) {
+    ui.marketSelect.value = previous;
   } else {
-
-    setTradeMessage(
-      `Trade finished. Result ${money(profit)} USD`
+    const preferred = state.markets.find(m =>
+      (m.underlying_symbol || m.symbol) === "1HZ100V"
     );
 
+    ui.marketSelect.value =
+      preferred
+        ? (preferred.underlying_symbol || preferred.symbol)
+        : (state.markets[0].underlying_symbol || state.markets[0].symbol);
   }
 
-
-  requestTradingBalance();
-
-
-  setTimeout(
-    function () {
-
-      if (
-        state.tradingSocketReady
-      ) {
-
-        requestQuote();
-
-      }
-
-    },
-    500
-  );
-
+  selectMarket(ui.marketSelect.value);
 }
 
+function selectMarket(symbol) {
+  if (!symbol || !state.publicReady) return;
+
+  state.selectedSymbol = symbol;
+
+  const market = state.markets.find(item =>
+    (item.underlying_symbol || item.symbol) === symbol
+  );
+
+  state.selectedMarketName =
+    market?.underlying_symbol_name ||
+    market?.display_name ||
+    symbol;
+
+  setText(ui.marketName, state.selectedMarketName);
+  setText(ui.priceMessage, "Subscribing to live ticks...");
+
+  state.priceHistory = [];
+  state.digitHistory = [];
+  state.totalTicks = 0;
+
+  invalidateQuote("Market changed. Request a new quote.");
+
+  // Replace the old tick subscription cleanly.
+  send(state.publicSocket, {
+    forget_all: "ticks"
+  });
+
+  send(state.publicSocket, {
+    ticks: symbol,
+    subscribe: 1,
+    req_id: nextId()
+  });
+}
 
 /* =========================================================
-   OPEN CONTRACTS DISPLAY
+   CONTINUOUS TICK PROCESSING
 ========================================================= */
 
-function renderOpenContracts() {
-
-  if (!ui.openContracts) {
+function processTick(tick) {
+  if (
+    tick.symbol &&
+    state.selectedSymbol &&
+    tick.symbol !== state.selectedSymbol
+  ) {
     return;
   }
 
+  const price = Number(tick.quote);
 
-  ui.openContracts.innerHTML =
-    "";
+  if (!Number.isFinite(price)) return;
 
+  state.livePrice = price;
+
+  // This counter never depends on chart-history length.
+  state.totalTicks += 1;
+
+  setText(ui.livePrice, price.toFixed(2));
+  setText(
+    ui.priceMessage,
+    `Live • ${state.totalTicks.toLocaleString()} ticks received`
+  );
+
+  const formatted = price.toFixed(
+    Math.max(0, Math.min(8, Number(tick.pip_size ?? 2)))
+  );
+
+  const digit = Number(formatted.slice(-1));
+
+  state.digitHistory.push(digit);
+
+  // Retain 2,000 digits for analysis; the stream continues.
+  if (state.digitHistory.length > 2000) {
+    state.digitHistory.shift();
+  }
+
+  state.priceHistory.push(price);
+
+  // Chart stores only the latest 50 points.
+  if (state.priceHistory.length > 50) {
+    state.priceHistory.shift();
+  }
+
+  setText(ui.liveDigit, digit);
+
+  updateLiveDigitHistory();
+  updateDigitsAnalysis();
+  updateMarketAnalysis();
+  drawChart();
+}
+
+function updateLiveDigitHistory() {
+  if (!ui.liveDigitHistory) return;
+
+  ui.liveDigitHistory.replaceChildren();
+
+  state.digitHistory.slice(-12).forEach(digit => {
+    const span = document.createElement("span");
+
+    span.textContent = digit;
+    span.style.cssText =
+      "background:#334155;padding:7px 10px;border-radius:7px;";
+
+    ui.liveDigitHistory.appendChild(span);
+  });
+}
+
+function updateDigitsAnalysis() {
+  const digits = state.digitHistory;
+  const total = digits.length;
+
+  setText(el("digitsSample"), `${total.toLocaleString()} ticks`);
+
+  if (!total) return;
+
+  const counts = Array(10).fill(0);
+  digits.forEach(digit => counts[digit]++);
+
+  const most = Math.max(...counts);
+  const least = Math.min(...counts);
+
+  const mostDigit = counts.indexOf(most);
+  const leastDigit = counts.indexOf(least);
+
+  const even = digits.filter(d => d % 2 === 0).length;
+  const odd = total - even;
+  const over = digits.filter(d => d > 5).length;
+  const under = digits.filter(d => d < 5).length;
+
+  const evenPct = even / total * 100;
+  const oddPct = odd / total * 100;
+
+  let bias = "NEUTRAL";
+  let confidence = "LOW";
+
+  if (total >= 200) {
+    const difference = Math.abs(evenPct - oddPct);
+
+    if (difference >= 10) {
+      bias = evenPct > oddPct ? "EVEN BIAS" : "ODD BIAS";
+    }
+
+    if (difference >= 18) {
+      confidence = "MEDIUM";
+    }
+  }
+
+  const repeated =
+    total >= 2 &&
+    digits[total - 1] === digits[total - 2];
+
+  setText(el("mostFrequentDigit"), `${mostDigit} (${(most / total * 100).toFixed(1)}%)`);
+  setText(el("leastFrequentDigit"), `${leastDigit} (${(least / total * 100).toFixed(1)}%)`);
+  setText(el("evenPercentage"), `${evenPct.toFixed(1)}%`);
+  setText(el("oddPercentage"), `${oddPct.toFixed(1)}%`);
+  setText(el("overFivePercentage"), `${(over / total * 100).toFixed(1)}%`);
+  setText(el("underFivePercentage"), `${(under / total * 100).toFixed(1)}%`);
+  setText(el("repeatedDigit"), repeated ? "YES" : "NO");
+  setText(el("digitBias"), bias);
+  setText(el("digitConfidence"), confidence);
+
+  setText(
+    el("digitAnalysisMessage"),
+    total < 200
+      ? `Collecting data: ${total}/200 ticks for the initial sample.`
+      : "Historical digit frequencies do not reliably predict the next digit."
+  );
+}
+
+/* =========================================================
+   CHART — INDEPENDENT OF TOTAL TICK COUNT
+========================================================= */
+
+function drawChart() {
+  const canvas = ui.liveChart;
+
+  if (!canvas?.getContext) return;
+
+  const rect = canvas.getBoundingClientRect();
+  const width = Math.max(300, Math.floor(rect.width));
+  const height = Math.max(220, Math.floor(rect.height));
+
+  const dpr = window.devicePixelRatio || 1;
+
+  canvas.width = width * dpr;
+  canvas.height = height * dpr;
+
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const prices = state.priceHistory;
+
+  if (prices.length < 2) return;
+
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  const range = max - min || 1;
+  const pad = 20;
+
+  ctx.beginPath();
+
+  prices.forEach((price, index) => {
+    const x = pad + index / (prices.length - 1) * (width - pad * 2);
+    const y = height - pad - (price - min) / range * (height - pad * 2);
+
+    if (index === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+
+  ctx.strokeStyle = "#2196f3";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+}
+
+/* =========================================================
+   SIMPLE PRICE ANALYSIS
+========================================================= */
+
+function updateMarketAnalysis() {
+  const prices = state.priceHistory;
+
+  if (prices.length < 20) {
+    setText(el("analysisTrend"), "WAITING");
+    setText(el("analysisMomentum"), "WAITING");
+    setText(el("analysisSignal"), "WAIT");
+    setText(el("analysisConfidence"), "LOW");
+    setText(el("analysisReason"), "Collecting 20 chart points.");
+    return;
+  }
+
+  const average = list =>
+    list.reduce((sum, value) => sum + value, 0) / list.length;
+
+  const shortChange =
+    average(prices.slice(-5)) -
+    average(prices.slice(-10, -5));
+
+  const mediumChange =
+    average(prices.slice(-10)) -
+    average(prices.slice(-20, -10));
+
+  let trend = "NEUTRAL";
+
+  if (shortChange > 0 && mediumChange > 0) trend = "BULLISH";
+  if (shortChange < 0 && mediumChange < 0) trend = "BEARISH";
+
+  const structure = prices.slice(-20);
+  const support = Math.min(...structure);
+  const resistance = Math.max(...structure);
+  const range = resistance - support;
+
+  const momentumRatio =
+    range > 0 ? Math.abs(shortChange) / range : 0;
+
+  const momentum =
+    momentumRatio >= 0.25 ? "STRONG" :
+    momentumRatio >= 0.10 ? "MODERATE" : "WEAK";
+
+  const recent = prices.slice(-8);
+  let up = 0;
+  let down = 0;
+
+  for (let i = 1; i < recent.length; i++) {
+    if (recent[i] > recent[i - 1]) up++;
+    if (recent[i] < recent[i - 1]) down++;
+  }
+
+  const moves = up + down;
+  const consistency =
+    moves ? Math.max(up, down) / moves : 0;
+
+  const nearSupport =
+    range > 0 && state.livePrice - support <= range * 0.15;
+
+  const nearResistance =
+    range > 0 && resistance - state.livePrice <= range * 0.15;
+
+  let signal = "WAIT";
 
   if (
-    state.activeContracts.size ===
-    0
+    trend === "BULLISH" &&
+    momentum !== "WEAK" &&
+    consistency >= 0.60 &&
+    !nearResistance
   ) {
-
-    const empty =
-      document.createElement(
-        "div"
-      );
-
-
-    empty.className =
-      "empty-state";
-
-
-    empty.textContent =
-      "No open contracts.";
-
-
-    ui.openContracts.appendChild(
-      empty
-    );
-
-
-    return;
-
+    signal = "RISE";
   }
-
-
-  for (
-    const contract of
-    state.activeContracts.values()
-  ) {
-
-    const box =
-      document.createElement(
-        "div"
-      );
-
-
-    box.className =
-      "open-contract";
-
-
-    const title =
-      document.createElement(
-        "strong"
-      );
-     title.textContent =
-      contract.symbol_name ||
-      contract.symbol ||
-      "Contract";
-
-
-    const details =
-      document.createElement(
-        "div"
-      );
-
-
-    details.textContent =
-      `${contract.direction || ""} • ` +
-      `Stake ${money(contract.buy_price)} USD`;
-
-
-    const result =
-      document.createElement(
-        "div"
-      );
-
-
-    const currentProfit =
-      contract.profit;
-
-
-    result.textContent =
-      currentProfit !== null &&
-      currentProfit !== undefined
-        ? `Profit: ${money(currentProfit)} USD`
-        : "Trade in progress...";
-
-
-    box.appendChild(
-      title
-    );
-
-
-    box.appendChild(
-      details
-    );
-
-
-    box.appendChild(
-      result
-    );
-
-
-    ui.openContracts.appendChild(
-      box
-    );
-
-  }
-
-}
-
-
-/* =========================================================
-   TRADE HISTORY
-========================================================= */
-
-function renderTradeHistory() {
-
-  if (!ui.tradeHistory) {
-    return;
-  }
-
-
-  ui.tradeHistory.innerHTML =
-    "";
-
 
   if (
-    state.finishedContracts.size ===
-    0
+    trend === "BEARISH" &&
+    momentum !== "WEAK" &&
+    consistency >= 0.60 &&
+    !nearSupport
   ) {
-
-    const empty =
-      document.createElement(
-        "div"
-      );
-
-
-    empty.className =
-      "empty-state";
-
-
-    empty.textContent =
-      "No verified results yet.";
-
-
-    ui.tradeHistory.appendChild(
-      empty
-    );
-
-
-    return;
-
+    signal = "FALL";
   }
 
+  setText(el("analysisTrend"), trend);
+  setText(el("analysisMomentum"), momentum);
+  setText(el("analysisSupport"), support.toFixed(2));
+  setText(el("analysisResistance"), resistance.toFixed(2));
+  setText(el("analysisSignal"), signal);
+  setText(
+    el("analysisConfidence"),
+    signal === "WAIT" ? "LOW" :
+      momentum === "STRONG" && consistency >= 0.75
+        ? "HIGH" : "MEDIUM"
+  );
 
-  const contracts =
-    Array.from(
-      state.finishedContracts.values()
-    ).reverse();
-
-
-  for (
-    const contract of contracts
-  ) {
-
-    const row =
-      document.createElement(
-        "div"
-      );
-
-
-    row.className =
-      "trade-history-row";
-
-
-    const title =
-      document.createElement(
-        "strong"
-      );
-
-
-    title.textContent =
-      contract.symbol_name ||
-      contract.symbol ||
-      "Contract";
-
-
-    const details =
-      document.createElement(
-        "div"
-      );
-
-
-    details.textContent =
-      `${contract.direction || ""} • ` +
-      `Contract ${contract.contract_id}`;
-
-
-    const profit =
-      document.createElement(
-        "div"
-      );
-
-
-    const value =
-      Number(
-        contract.profit
-      );
-
-
-    profit.textContent =
-      Number.isFinite(value)
-        ? `Result: ${money(value)} USD`
-        : "Result unavailable";
-
-
-    row.appendChild(
-      title
-    );
-
-
-    row.appendChild(
-      details
-    );
-
-
-    row.appendChild(
-      profit
-    );
-
-
-    ui.tradeHistory.appendChild(
-      row
-    );
-
-  }
-
+  setText(
+    el("analysisReason"),
+    signal === "WAIT"
+      ? "Conditions are not sufficiently confirmed. Wait."
+      : `${trend} conditions detected. This is not a guarantee of the next price movement.`
+  );
 }
 
-
 /* =========================================================
-   PERFORMANCE
+   AUTHENTICATED TRADING CONNECTION
 ========================================================= */
 
-function updatePerformance() {
+async function connectTradingSocket() {
+  if (!state.loggedIn) return;
 
-  setText(
-    ui.wins,
-    state.performance.wins
-  );
-
-
-  setText(
-    ui.losses,
-    state.performance.losses
-  );
-
-
-  setText(
-    ui.totalProfit,
-    money(
-      state.performance.profit
+  if (
+    state.tradingSocket &&
+    (
+      state.tradingSocket.readyState === WebSocket.OPEN ||
+      state.tradingSocket.readyState === WebSocket.CONNECTING
     )
-  );
-
-                     }
-       /* =========================================================
-   TRANSACTIONS
-========================================================= */
-
-function handleTransaction(transaction) {
-
-  if (!transaction) {
-    return;
-  }
-
-
-  if (
-    transaction.action ===
-    "buy"
   ) {
-
-    requestTradingBalance();
-
-  }
-
-}
-
-
-/* =========================================================
-   DIRECTION
-========================================================= */
-
-
-function setDirection(direction) {
-
-  const allowedTypes = [
-    "RISE",
-    "FALL",
-    "CALL",
-    "PUT",
-    "DIGITEVEN",
-    "DIGITODD",
-    "DIGITOVER",
-    "DIGITUNDER"
-  ];
-
-  if (!allowedTypes.includes(direction)) {
     return;
   }
 
-  if (direction === "RISE") {
-    state.direction = "RISE";
-    state.contractType = "CALL";
-  } else if (direction === "FALL") {
-    state.direction = "FALL";
-    state.contractType = "PUT";
-  } else {
-    state.contractType = direction;
-    state.direction = direction;
-  }
+  setText(ui.connectionStatus, "Connecting to trading account...");
 
-  if (ui.contractType) {
-    ui.contractType.value = state.contractType;
-  }
+  try {
+    const response = await fetch("/api/trading-connection", {
+      credentials: "same-origin",
+      cache: "no-store"
+    });
 
-  if (ui.riseBtn) {
-    ui.riseBtn.classList.toggle(
-      "active",
-      state.contractType === "CALL"
-    );
-  }
+    const data = await response.json();
 
-  if (ui.fallBtn) {
-    ui.fallBtn.classList.toggle(
-      "active",
-      state.contractType === "PUT"
-    );
-  }
+    if (!response.ok || !data.ws_url) {
+      throw new Error(data.error || "Trading connection URL unavailable.");
+    }
 
-  const needsBarrier =
-    state.contractType === "DIGITOVER" ||
-    state.contractType === "DIGITUNDER";
+    const socket = new WebSocket(data.ws_url);
+    state.tradingSocket = socket;
 
-  if (ui.barrierContainer) {
-    ui.barrierContainer.style.display =
-      needsBarrier ? "block" : "none";
-  }
+    socket.onopen = () => {
+      if (state.tradingSocket !== socket) return;
 
-  if (ui.directionStatus) {
-    const labels = {
-      CALL: "Rise selected",
-      PUT: "Fall selected",
-      DIGITEVEN: "Even selected",
-      DIGITODD: "Odd selected",
-      DIGITOVER: "Over selected",
-      DIGITUNDER: "Under selected"
+      state.tradingReady = true;
+
+      setText(ui.connectionStatus, "Trading connection ready");
+      updateBuyButton();
+
+      send(socket, {
+        balance: 1,
+        subscribe: 1,
+        req_id: nextId()
+      });
+
+      requestQuote();
     };
 
-    ui.directionStatus.textContent =
-      labels[state.contractType] || "Select a contract";
-  }
+    socket.onmessage = event => {
+      if (state.tradingSocket !== socket) return;
 
-  requestQuote();
-     }
-     
-
-
-/* =========================================================
-   INPUT EVENTS
-========================================================= */
-
-function setupInputs() {
-  
-if (ui.accountType) {
-  ui.accountType.addEventListener(
-    "change",
-    async function () {
-
-      const selectedType =
-        ui.accountType.value;
-
-      if (
-        ui.accountTypeMessage
-      ) {
-        ui.accountTypeMessage.textContent =
-          "Switching account...";
-      }
+      let data;
 
       try {
-        const response =
-          await fetch(
-            "/api/account-type",
-            {
-              method: "POST",
-
-              headers: {
-                "Content-Type":
-                  "application/json"
-              },
-
-              credentials:
-                "same-origin",
-
-              body: JSON.stringify({
-                account_type:
-                  selectedType
-              })
-            }
-          );
-
-        const data =
-          await response.json();
-
-        if (!response.ok) {
-          throw new Error(
-            data.error ||
-            "Unable to switch account."
-          );
-        }
-
-        state.accountType =
-          selectedType;
-
-        state.account =
-          data.account ||
-          null;
-
-        if (
-          ui.accountTypeMessage
-        ) {
-          ui.accountTypeMessage.textContent =
-            selectedType === "demo"
-              ? "Demo Account selected ✓"
-              : "Real Account selected ✓";
-        }
-
-        setText(
-          ui.accountId,
-          data.account?.id ||
-          data.account?.account_id ||
-          "--"
-        );
-
-        if (
-          data.account?.balance !==
-            null &&
-          data.account?.balance !==
-            undefined
-        ) {
-          setText(
-            ui.balance,
-            `${money(data.account.balance)} ${
-              data.account.currency ||
-              "USD"
-            }`
-          );
-        }
-
-        closeTradingSocket();
-
-        if (
-          state.loggedIn
-        ) {
-          await connectTradingSocket();
-        }
-
-      } catch (error) {
-
-        console.error(
-          "Account switch error:",
-          error
-        );
-
-        if (
-          ui.accountTypeMessage
-        ) {
-          ui.accountTypeMessage.textContent =
-            error.message ||
-            "Unable to switch account.";
-        }
-
-        /*
-          Keep Demo selected if the
-          requested account could not
-          be activated.
-        */
-
-        ui.accountType.value =
-          state.accountType ||
-          "demo";
+        data = JSON.parse(event.data);
+      } catch (_) {
+        return;
       }
 
-    }
-  );
-}
+      handleTradingMessage(data);
+     }
+     socket.onerror = error => {
+      console.error("Trading WebSocket error:", error);
+      setText(ui.connectionStatus, "Trading connection error");
+    };
 
-  if (ui.marketSelect) {
+    socket.onclose = () => {
+      if (state.tradingSocket !== socket) return;
 
-    ui.marketSelect.addEventListener(
-      "change",
-      function () {
+      state.tradingReady = false;
+      state.tradingSocket = null;
+      state.buying = false;
+      state.pendingBuyReqId = null;
 
-        const market =
-          state.markets.find(
-            item =>
-              item.symbol ===
-              ui.marketSelect.value
-          );
+      invalidateQuote("Trading disconnected. Reconnecting...");
 
+      setText(ui.connectionStatus, "Trading disconnected");
 
-        if (market) {
+      if (state.loggedIn) {
+        clearTimeout(state.reconnectTimer);
 
-          selectMarket(
-            market
-          );
-
-        }
-
-              }
-
-    );
-
-  }
-
-
-  if (ui.amount) {
-
-    ui.amount.addEventListener(
-      "input",
-      function () {
-
-        state.amount =
-          Number(
-            ui.amount.value
-          );
-
-        requestQuote();
-
+        state.reconnectTimer = setTimeout(() => {
+          connectTradingSocket();
+        }, 3000);
       }
-    );
+    };
 
+  } catch (error) {
+    console.error("Trading connection:", error);
 
-    ui.amount.addEventListener(
-      "change",
-      requestQuote
-    );
-
+    state.tradingReady = false;
+    setText(ui.connectionStatus, "Trading connection failed");
+    showMessage(error.message);
   }
-
-
-  if (ui.duration) {
-
-    ui.duration.addEventListener(
-      "input",
-      function () {
-
-        state.duration =
-          Number(
-            ui.duration.value
-          );
-
-        requestQuote();
-
-      }
-    );
-
-
-    ui.duration.addEventListener(
-      "change",
-      requestQuote
-    );
-
-  }
-
-
-  if (ui.riseBtn) {
-
-    ui.riseBtn.addEventListener(
-      "click",
-      function () {
-
-        setDirection(
-          "RISE"
-        );
-
-      }
-    );
-
-  }
-
-
-  if (ui.fallBtn) {
-
-    ui.fallBtn.addEventListener(
-      "click",
-      function () {
-
-        setDirection(
-          "FALL"
-        );
-
-      }
-    );
-
-  }
-
-
-  if (ui.contractType) {
-
-    ui.contractType.addEventListener(
-      "change",
-      function () {
-
-        setDirection(
-          ui.contractType.value
-        );
-
-      }
-    );
-
-  }
-
-  if (ui.barrier) {
-
-    ui.barrier.addEventListener(
-      "change",
-      function () {
-
-        if (
-          state.contractType === "DIGITOVER" ||
-          state.contractType === "DIGITUNDER"
-        ) {
-
-          requestQuote();
-
-        }
-
-      }
-    );
-
-  }
-   
-  if (ui.buyBtn) {
-
-    ui.buyBtn.addEventListener(
-      "click",
-      executeBuy
-    );
-
-  }
-
-
-  if (ui.logoutBtn) {
-  ui.logoutBtn.addEventListener(
-      "click",
-      logout
-    );
-
-  }
-
-
-  if (ui.loginBtn) {
-
-    ui.loginBtn.addEventListener(
-      "click",
-      function () {
-
-        window.location.href =
-          "/login";
-
-      }
-    );
-
-  }
-
 }
 
 
 /* =========================================================
-   CLOSE SOCKETS
+   QUOTE REQUESTS
 ========================================================= */
 
-function closePublicSocket() {
-
-  if (
-    state.publicSocket
-  ) {
-
-    try {
-
-      state.publicSocket.close();
-
-    } catch (_) {}
-
-  }
-
-
-  state.publicSocket =
-    null;
-
-
-  state.publicSocketReady =
-    false;
-
-}
-
-
-function closeTradingSocket() {
-
-  if (
-    state.tradingSocket
-  ) {
-
-    try {
-
-      state.tradingSocket.close();
-
-    } catch (_) {}
-
-  }
-
-
-  state.tradingSocket =
-    null;
-
-
-  state.tradingSocketReady =
-    false;
-
-}
-
-
-/* =========================================================
-   INITIALIZE
-========================================================= */
-
-async function initialize() {
-
-  cacheUI();
-
-  setupInputs();
-
-  updatePerformance();
-
-
-  setConnectionStatus(
-    "Connecting..."
-  );
-
-
-  disableBuy(
-    "Trading is disabled until the secure account connection is verified."
-  );
-
-
-  const configLoaded =
-    await loadConfig();
-
-
-  if (!configLoaded) {
+function requestQuote() {
+  if (!state.loggedIn || !state.tradingReady) {
+    invalidateQuote("Connect your Deriv account first.");
     return;
   }
 
+  if (!state.account || !state.selectedSymbol) {
+    invalidateQuote("Select a market and account first.");
+    return;
+  }
 
-  const loggedIn =
-    await checkSession();
+  if (state.buying) {
+    setText(ui.quoteStatus, "Please wait for the current trade.");
+    return;
+  }
 
+  const amount = Number(ui.amount?.value ?? state.amount);
+  const duration = Number(ui.duration?.value ?? state.duration);
 
-  if (loggedIn) {
+  if (!Number.isFinite(amount) || amount <= 0) {
+    invalidateQuote("Enter a valid stake amount.");
+    return;
+  }
 
-    showLoggedIn();
+  if (!Number.isFinite(duration) || duration < 1) {
+    invalidateQuote("Enter a valid duration.");
+    return;
+  }
 
+  state.amount = amount;
+  state.duration = duration;
 
-    setConnectionStatus(
-      "Connecting to Deriv..."
+  if (
+    state.account.currency &&
+    state.account.currency !== "USD"
+  ) {
+    invalidateQuote(
+      `Your account currency is ${state.account.currency}. Check your stake settings.`
     );
+    return;
+  }
+
+  invalidateQuote("Requesting a fresh quote...");
+
+  const reqId = nextId();
+  state.pendingProposalReqId = reqId;
+
+  const payload = {
+    proposal: 1,
+    amount: state.amount,
+    basis: "stake",
+    contract_type: state.contractType,
+    currency: state.account.currency || "USD",
+    duration: state.duration,
+    duration_unit: state.durationUnit,
+    underlying_symbol: state.selectedSymbol,
+    product_type: "basic",
+    req_id: reqId
+  };
+
+  if (
+    state.contractType === "DIGITOVER" ||
+    state.contractType === "DIGITUNDER"
+  ) {
+    payload.barrier = String(state.barrier);
+  }
+
+  if (!send(state.tradingSocket, payload)) {
+    state.pendingProposalReqId = null;
+    invalidateQuote("Could not send the quote request.");
+  }
+}
 
 
-    await loadAccount();
+/* =========================================================
+   TRADING MESSAGE HANDLER
+========================================================= */
+
+function handleTradingMessage(data) {
+  if (data.error) {
+    const message =
+      data.error.message || "Deriv returned a trading error.";
+
+    console.error("Deriv trading error:", data.error);
+
+    if (data.req_id === state.pendingBuyReqId) {
+      state.pendingBuyReqId = null;
+      state.buying = false;
+    }
+
+    if (data.req_id === state.pendingProposalReqId) {
+      state.pendingProposalReqId = null;
+    }
+
+    setText(ui.quoteStatus, message);
+    showMessage(message);
+    updateBuyButton();
+    return;
+  }
+
+  const proposal = data.proposal || data.data?.proposal;
+
+  if (
+    proposal &&
+    (
+      data.req_id === state.pendingProposalReqId ||
+      data.echo_req?.req_id === state.pendingProposalReqId
+    )
+  ) {
+    state.pendingProposalReqId = null;
+
+    state.proposal = proposal;
+    state.proposalId = proposal.id || null;
+    state.askPrice = Number(proposal.ask_price || 0);
+    state.payout = Number(proposal.payout || 0);
+
+    // Do not allow a quote to remain usable indefinitely.
+    state.quoteExpiresAt = Date.now() + 15000;
+
+    setText(ui.askPrice, money(state.askPrice));
+    setText(ui.payout, money(state.payout));
+    setText(ui.quoteStatus, "Quote received ✓");
+
+    clearTimeout(state.quoteTimer);
+
+    state.quoteTimer = setTimeout(() => {
+      if (state.quoteExpiresAt <= Date.now()) {
+        invalidateQuote("Quote expired. Request a new quote.");
+      }
+    }, 15100);
+
+    updateBuyButton();
+    return;
+  }
+
+  const buy = data.buy || data.data?.buy;
+
+  if (
+    buy &&
+    (
+      data.req_id === state.pendingBuyReqId ||
+      data.echo_req?.req_id === state.pendingBuyReqId
+    )
+  ) {
+    state.pendingBuyReqId = null;
+    state.buying = false;
+
+    if (buy.contract_id) {
+      state.activeContracts.set(
+        String(buy.contract_id),
+        {
+          contract_id: buy.contract_id,
+          buy_price: Number(buy.buy_price || state.askPrice),
+          startedAt: Date.now()
+        }
+      );
+
+      send(state.tradingSocket, {
+        proposal_open_contract: 1,
+        contract_id: buy.contract_id,
+        subscribe: 1,
+        req_id: nextId()
+      });
+
+      showMessage(
+        `Trade purchased successfully. Contract ID: ${buy.contract_id}`
+      );
+
+      setText(ui.quoteStatus, "Trade purchased ✓");
+      invalidateQuote("Trade placed. Request a fresh quote.");
+      renderOpenContracts();
+    } else {
+      showMessage("The purchase response did not include a contract ID.");
+    }
+
+    updateBuyButton();
+    return;
+  }
+
+  const balance = data.balance || data.data?.balance;
+
+  if (balance) {
+    if (state.account) {
+      state.account.balance = Number(balance.balance);
+      state.account.currency =
+        balance.currency || state.account.currency;
+    }
+
+    setText(
+      ui.balance,
+      `${money(balance.balance)} ${balance.currency || "USD"}`
+    );
+    return;
+  }
+
+  const contract =
+    data.proposal_open_contract ||
+    data.data?.proposal_open_contract;
+
+  if (contract) {
+    handleContractUpdate(contract);
+  }
+          }
+/* =========================================================
+   BUY CURRENT QUOTE
+========================================================= */
+
+function buyCurrentQuote() {
+  if (state.buying) return;
+
+  if (!state.loggedIn || !state.tradingReady) {
+    showMessage("Connect to Deriv before purchasing.");
+    return;
+  }
+
+  if (!state.account || !state.proposalId) {
+    showMessage("Request a valid quote first.");
+    return;
+  }
+
+  if (state.quoteExpiresAt <= Date.now()) {
+    invalidateQuote("Quote expired. Request a new quote.");
+    return;
+  }
+
+  if (
+    state.account.account_type === "real" &&
+    state.config?.real_trading_enabled !== true
+  ) {
+    showMessage("Real trading is disabled by the server.");
+    return;
+  }
+
+  const confirmed = window.confirm(
+    `Confirm ${state.account.account_type || "demo"} trade?\n\n` +
+    `Market: ${state.selectedMarketName}\n` +
+    `Contract: ${state.contractType}\n` +
+    `Stake: ${money(state.askPrice)} ${state.account.currency || "USD"}\n` +
+    `Potential payout: ${money(state.payout)}\n\n` +
+    `Only continue if these details are correct.`
+  );
+
+  if (!confirmed) return;
+
+  const proposalId = state.proposalId;
+  const askPrice = state.askPrice;
+
+  state.buying = true;
+  state.pendingBuyReqId = nextId();
+
+  const reqId = state.pendingBuyReqId;
+
+  updateBuyButton();
+  showMessage("Sending purchase request...");
+
+  const sent = send(state.tradingSocket, {
+    buy: proposalId,
+    price: askPrice,
+    req_id: reqId
+  });
+
+  if (!sent) {
+    state.buying = false;
+    state.pendingBuyReqId = null;
+
+    showMessage("Purchase request could not be sent.");
+    updateBuyButton();
+  }
+}
 
 
-    connectPublicSocket();
+/* =========================================================
+   CONTRACT UPDATES AND HISTORY
+========================================================= */
 
+function handleContractUpdate(contract) {
+  const id = String(contract.contract_id || "");
+
+  if (!id) return;
+
+  const existing = state.activeContracts.get(id) || {};
+
+  const updated = {
+    ...existing,
+    contract_id: contract.contract_id,
+    buy_price: Number(
+      contract.buy_price ?? existing.buy_price ?? 0
+    ),
+    current_spot: contract.current_spot,
+    status: contract.status || "open",
+    profit: Number(contract.profit || 0),
+    payout: Number(contract.payout || 0),
+    is_sold: Boolean(contract.is_sold),
+    is_expired: Boolean(contract.is_expired)
+  };
+
+  const finished =
+    updated.is_sold ||
+    updated.is_expired ||
+    ["won", "lost", "sold"].includes(updated.status);
+
+  if (finished) {
+    state.activeContracts.delete(id);
+    state.finishedContracts.set(id, updated);
+
+    if (state.finishedContracts.size > 100) {
+      const oldest =
+        state.finishedContracts.keys().next().value;
+
+      state.finishedContracts.delete(oldest);
+    }
+
+    if (!existing.resultRecorded) {
+      if (updated.profit > 0) {
+        state.performance.wins++;
+      } else if (updated.profit < 0) {
+        state.performance.losses++;
+      }
+
+      state.performance.profit += updated.profit;
+      updated.resultRecorded = true;
+      state.finishedContracts.set(id, updated);
+    }
+
+    updatePerformance();
+    renderTradeHistory();
+
+    showMessage(
+      `Contract ${id} finished. Profit/Loss: ${money(updated.profit)}`
+    );
+  } else {
+    state.activeContracts.set(id, updated);
+  }
+
+  renderOpenContracts();
+}
+
+function updatePerformance() {
+  setText(el("wins"), state.performance.wins);
+  setText(el("losses"), state.performance.losses);
+  setText(el("totalProfit"), money(state.performance.profit));
+}
+
+function renderOpenContracts() {
+  if (!ui.openContracts) return;
+
+  ui.openContracts.replaceChildren();
+
+  if (!state.activeContracts.size) {
+    ui.openContracts.textContent = "No open contracts.";
+    return;
+  }
+
+  state.activeContracts.forEach(contract => {
+    const row = document.createElement("div");
+
+    row.style.cssText =
+      "padding:10px;margin:6px 0;background:#1e293b;border-radius:8px;";
+
+    row.textContent =
+      `Contract ${contract.contract_id} • ` +
+      `Status: ${contract.status || "open"} • ` +
+      `Profit/Loss: ${money(contract.profit || 0)}`;
+
+    ui.openContracts.appendChild(row);
+  });
+}
+
+function renderTradeHistory() {
+  if (!ui.tradeHistory) return;
+
+  ui.tradeHistory.replaceChildren();
+
+  if (!state.finishedContracts.size) {
+    ui.tradeHistory.textContent = "No finished trades yet.";
+    return;
+  }
+
+  Array.from(state.finishedContracts.values())
+    .reverse()
+    .forEach(contract => {
+      const row = document.createElement("div");
+
+      row.style.cssText =
+        "padding:10px;margin:6px 0;background:#1e293b;border-radius:8px;";
+
+      row.textContent =
+        `Contract ${contract.contract_id} • ` +
+        `${contract.status} • P/L: ${money(contract.profit)}`;
+
+      ui.tradeHistory.appendChild(row);
+    });
+}
+
+
+/* =========================================================
+   ACCOUNT TYPE
+========================================================= */
+
+async function changeAccountType() {
+  if (!ui.accountType || !state.loggedIn) return;
+
+  const selectedType = ui.accountType.value;
+
+  if (!["demo", "real"].includes(selectedType)) {
+    showMessage("Invalid account selection.");
+    return;
+  }
+
+  if (
+    selectedType === "real" &&
+    state.config?.real_trading_enabled !== true
+  ) {
+    showMessage("Real trading is disabled by the server.");
+    ui.accountType.value = "demo";
+    return;
+  }
+
+  if (
+    selectedType === "real" &&
+    !window.confirm(
+      "You selected a REAL account. Trades may use real money. Continue?"
+    )
+  ) {
+    ui.accountType.value =
+      state.account?.account_type || "demo";
+    return;
+  }
+
+  invalidateQuote("Changing account. Please wait.");
+
+  try {
+    const response = await fetch("/api/account-type", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      credentials: "same-origin",
+      body: JSON.stringify({
+        account_type: selectedType
+      })
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error || "Could not change the account type."
+      );
+       }
+     // Confirm the server-selected account instead of assuming
+    // that changing the dropdown changed the trading account.
+    const loaded = await loadAccount();
+
+    if (!loaded) {
+      throw new Error("Could not verify the selected account.");
+    }
+
+    closeSocket(state.tradingSocket);
+
+    state.tradingSocket = null;
+    state.tradingReady = false;
 
     await connectTradingSocket();
 
-  } else {
+    showMessage(
+      `Account selection updated. Verify the account details before trading.`
+    );
+  } catch (error) {
+    console.error("Account type:", error);
 
-    showLoggedOut();
+    showMessage(error.message);
 
-
-    connectPublicSocket();
-
+    if (state.account) {
+      ui.accountType.value =
+        state.account.account_type || "demo";
+    }
   }
-
 }
 
 
 /* =========================================================
-   START
+   USER INTERACTIONS
 ========================================================= */
 
-if (
-  document.readyState ===
-  "loading"
-) {
+function bindEvents() {
+  if (ui.loginBtn) {
+    ui.loginBtn.addEventListener("click", () => {
+      window.location.href = "/login";
+    });
+  }
 
-  document.addEventListener(
-    "DOMContentLoaded",
-    initialize
+  if (ui.logoutBtn) {
+    ui.logoutBtn.addEventListener("click", logout);
+  }
+
+  if (ui.marketSelect) {
+    ui.marketSelect.addEventListener("change", () => {
+      selectMarket(ui.marketSelect.value);
+    });
+  }
+
+  if (ui.accountType) {
+    ui.accountType.addEventListener(
+      "change",
+      changeAccountType
+    );
+  }
+
+  if (ui.amount) {
+    ui.amount.addEventListener("change", () => {
+      state.amount = Number(ui.amount.value);
+      invalidateQuote("Stake changed. Request a new quote.");
+    });
+  }
+
+  if (ui.duration) {
+    ui.duration.addEventListener("change", () => {
+      state.duration = Number(ui.duration.value);
+      invalidateQuote("Duration changed. Request a new quote.");
+    });
+  }
+
+  if (ui.contractType) {
+    ui.contractType.addEventListener("change", () => {
+      state.contractType = ui.contractType.value;
+      invalidateQuote("Contract changed. Request a new quote.");
+    });
+  }
+
+  if (ui.barrier) {
+    ui.barrier.addEventListener("change", () => {
+      state.barrier = Number(ui.barrier.value);
+      invalidateQuote("Barrier changed. Request a new quote.");
+    });
+  }
+
+  if (ui.riseBtn) {
+    ui.riseBtn.addEventListener("click", () => {
+      state.direction = "RISE";
+      state.contractType = "CALL";
+
+      if (ui.contractType) {
+        ui.contractType.value = "CALL";
+      }
+
+      invalidateQuote("RISE selected. Request a new quote.");
+      requestQuote();
+    });
+  }
+
+  if (ui.fallBtn) {
+    ui.fallBtn.addEventListener("click", () => {
+      state.direction = "FALL";
+      state.contractType = "PUT";
+
+      if (ui.contractType) {
+        ui.contractType.value = "PUT";
+      }
+
+      invalidateQuote("FALL selected. Request a new quote.");
+      requestQuote();
+    });
+  }
+
+  if (ui.buyBtn) {
+    ui.buyBtn.addEventListener("click", buyCurrentQuote);
+  }
+const quoteButton = el("quoteBtn");
+
+  if (quoteButton) {
+    quoteButton.addEventListener("click", requestQuote);
+  }
+
+  window.addEventListener("resize", drawChart);
+}
+
+
+/* =========================================================
+   START APPLICATION
+========================================================= */
+
+async function startApp() {
+  cacheUI();
+  bindEvents();
+
+  updatePerformance();
+  renderOpenContracts();
+  renderTradeHistory();
+
+  setText(ui.connectionStatus, "Loading Tradedollars...");
+
+  const configLoaded = await loadConfig();
+
+  if (!configLoaded) {
+    setText(
+      ui.connectionStatus,
+      "Configuration unavailable. Refresh to retry."
+    );
+    return;
+  }
+
+  connectPublicSocket();
+
+  const loggedIn = await checkSession();
+
+  if (loggedIn) {
+    showLoggedIn();
+
+    setText(ui.connectionStatus, "Connecting to Deriv...");
+
+    const accountLoaded = await loadAccount();
+
+    if (accountLoaded) {
+      await connectTradingSocket();
+    }
+  } else {
+    showLoggedOut();
+  }
+
+  updateBuyButton();
+}
+
+
+/* =========================================================
+   APPLICATION ENTRY POINT
+========================================================= */
+
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", startApp);
+} else {
+  startApp();
+}
+
+/* =========================================================
+   TRADEDOLLARS — STARTUP DIAGNOSTICS
+========================================================= */
+
+window.addEventListener("load", () => {
+  const requiredElements = [
+    "connectionStatus",
+    "loginBtn",
+    "logoutBtn",
+    "marketSelect",
+    "livePrice",
+    "amount",
+    "duration",
+    "riseBtn",
+    "fallBtn",
+    "buyBtn"
+  ];
+
+  const missingElements = requiredElements.filter(
+    id => !document.getElementById(id)
   );
 
-} else {
-  initialize();
-}
+  if (missingElements.length > 0) {
+    console.warn(
+      "Tradedollars: HTML elements not found:",
+      missingElements
+    );
+  } else {
+    console.info(
+      "Tradedollars: Required HTML elements found."
+    );
+  }
+});
+  
+                
