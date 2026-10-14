@@ -363,11 +363,7 @@ function connectPublicSocket() {
     return;
   }
 
-  const appId = state.config?.app_id;
-
-  const url = appId
-    ? `${PUBLIC_WS_BASE}?app_id=${encodeURIComponent(appId)}`
-    : PUBLIC_WS_BASE;
+  const url = PUBLIC_WS_BASE;
 
   setText(ui.connectionStatus, "Connecting to market data...");
 
