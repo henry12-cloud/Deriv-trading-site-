@@ -125,70 +125,88 @@ async function checkAccount() {
 }
 
 async function loadAccount() {
-  try {
-    const response = await fetch("/api/account", {
-      cache: "no-store",
-      credentials: "same-origin"
-    });
+try {
+show("accountStatus", "Checking demo account...");
+show("accountId", "--");
+show("balance", "--");
 
-    const data = await response.json();
-
-    if (!response.ok || !data.account) {
-      throw new Error(data.error || "Demo account unavailable.");
-    }
-
-    const account = data.account;
-    const type = String(
-      account.account_type || account.accountType || ""
-    ).toLowerCase();
-
-    if (type !== "demo") {
-      throw new Error("Only a verified demo account is permitted.");
-    }
-
-    state.account = account;
-
-    show("accountStatus", "Demo account connected");
-    show(
-      "accountId",
-      account.account_id || account.id || "--"
-    );
-    show(
-      "balance",
-      `${money(account.balance)} ${account.currency || "USD"}`
-    );
-    show("accountTypeMessage", "Demo Account selected");
-  } catch (error) {
-    state.account = null;
-    console.error("Demo account error:", error);
-    show("accountStatus", "Demo account unavailable");
-    show("accountId", "--");
-    show("balance", "--");
-    show("accountTypeMessage", error.message);
+const response = await fetch("/api/account", {
+  method: "GET",
+  cache: "no-store",
+  credentials: "same-origin",
+  headers: {
+    "Accept": "application/json"
   }
+});
+
+const data = await response.json();
+
+if (!response.ok || data.connected === false || !data.account) {
+  throw new Error(
+    data.error || "Demo account unavailable. Please log in again."
+  );
 }
 
-async function logout() {
-  try {
-    await fetch("/logout", {
-      method: "POST",
-      credentials: "same-origin"
-    });
-  } catch (error) {
-    console.error("Logout error:", error);
-  }
+const account = data.account;
 
-  state.loggedIn = false;
-  state.account = null;
+const accountType = String(
+  account.account_type ||
+  account.accountType ||
+  ""
+).toLowerCase();
 
-  show("accountStatus", "Log in first");
-  show("accountId", "--");
-  show("balance", "--");
-
-  if ($("loginBtn")) $("loginBtn").hidden = false;
-  if ($("logoutBtn")) $("logoutBtn").hidden = true;
+if (accountType !== "demo") {
+  throw new Error(
+    "Account verification failed. Only demo accounts are permitted."
+  );
 }
 
+if (
+  account.balance === undefined ||
+  account.balance === null ||
+  !Number.isFinite(Number(account.balance))
+) {
+  throw new Error("Demo account balance is unavailable.");
+}
+
+state.account = account;
+
+show("accountStatus", "Demo account connected ✓");
+show("accountId", account.account_id || account.id || "--");
+show(
+  "balance",
+  `${money(Number(account.balance))} ${account.currency || "USD"}`
+);
+show("accountTypeMessage", "Demo Account selected");
+
+if ($("loginBtn")) $("loginBtn").hidden = true;
+if ($("logoutBtn")) $("logoutBtn").hidden = false;
+
+console.log("Verified demo account loaded:", {
+  account_id: account.account_id || account.id,
+  account_type: accountType,
+  currency: account.currency
+});
+
+return account;
+
+} catch (error) {
+state.account = null;
+
+console.error("Demo account error:", error);
+
+show("accountStatus", "Demo account unavailable");
+show("accountId", "--");
+show("balance", "--");
+show("accountTypeMessage", error.message);
+
+if ($("loginBtn")) $("loginBtn").hidden = false;
+if ($("logoutBtn")) $("logoutBtn").hidden = true;
+
+return null;
+
+}
+}
 /* =========================================================
    PUBLIC MARKET DATA
 ========================================================= */
