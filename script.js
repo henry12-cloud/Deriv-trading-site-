@@ -328,6 +328,7 @@ function sendPublicMessage(message) {
 }
 
 
+
 function connectPublicSocket() {
   if (
     state.publicSocket &&
@@ -354,11 +355,7 @@ function connectPublicSocket() {
     socket = new WebSocket(socketUrl);
   } catch (error) {
     console.error("Public WebSocket creation failed:", error);
-    setStatus(
-      "priceStatus",
-      "Could not create market connection",
-      "#ef4444"
-    );
+    setStatus("priceStatus", "Connection failed; retrying...", "#ef4444");
     schedulePublicReconnect();
     return;
   }
@@ -372,19 +369,19 @@ function connectPublicSocket() {
     state.socketReady = true;
     state.reconnectDelay = 2000;
 
+    console.log("Public market WebSocket connected.");
+
     setStatus(
       "priceStatus",
-      "Market connected; loading symbols...",
+      "Connected; requesting markets and live ticks...",
       "#22c55e"
     );
 
-    // Request available markets.
     socket.send(JSON.stringify({
       active_symbols: "brief",
       req_id: 1001
     }));
 
-    // Subscribe to the default market.
     socket.send(JSON.stringify({
       ticks: "1HZ100V",
       subscribe: 1,
@@ -400,13 +397,13 @@ function connectPublicSocket() {
     try {
       message = JSON.parse(event.data);
     } catch (error) {
-      console.error("Invalid market WebSocket response:", error);
+      console.error("Invalid WebSocket message:", error);
       return;
     }
 
     if (message.error) {
       console.error(
-        "Deriv market API error:",
+        "Market API error:",
         message.error.code,
         message.error.message
       );
@@ -420,20 +417,25 @@ function connectPublicSocket() {
       return;
     }
 
-    // Pass valid messages to your existing application handler.
+    if (message.msg_type === "active_symbols") {
+      console.log(
+        "Market-list response:",
+        message.active_symbols?.length ?? 0,
+        "markets"
+      );
+    }
+
+    if (message.msg_type === "tick") {
+      console.log("Live tick received:", message.tick?.quote);
+    }
+
     if (typeof handlePublicMessage === "function") {
       handlePublicMessage(message);
     }
   };
 
   socket.onerror = function (error) {
-    console.error("Public market WebSocket error:", error);
-
-    setStatus(
-      "priceStatus",
-      "Market connection error",
-      "#ef4444"
-    );
+    console.error("Public WebSocket error:", error);
   };
 
   socket.onclose = function (event) {
@@ -443,22 +445,21 @@ function connectPublicSocket() {
     state.socketReady = false;
 
     console.warn(
-      "Market WebSocket closed:",
+      "Public market WebSocket closed:",
       event.code,
-      event.reason
+      event.reason || "(no reason supplied)"
     );
 
     setStatus(
       "priceStatus",
-      "Market disconnected. Reconnecting...",
+      "Market disconnected; reconnecting...",
       "#f59e0b"
     );
 
     schedulePublicReconnect();
   };
   }
-
-
+       
 function schedulePublicReconnect() {
   if (state.publicReconnectTimer) return;
 
