@@ -416,7 +416,32 @@ function connectPublicSocket() {
 
       return;
     }
+if (
+  message.req_id === 1001 ||
+  message.echo_req?.active_symbols ||
+  message.msg_type === "active_symbols"
+) {
+  const count = Array.isArray(message.active_symbols)
+    ? message.active_symbols.length
+    : 0;
 
+  console.log("MARKET DIAGNOSTIC:", {
+    msg_type: message.msg_type,
+    req_id: message.req_id,
+    market_count: count,
+    has_active_symbols: Array.isArray(message.active_symbols),
+    error: message.error || null,
+    echo_req: message.echo_req || null
+  });
+
+  setStatus(
+    "marketStatus",
+    "Market response: " +
+      (message.msg_type || "unknown type") +
+      " | Count: " + count,
+    count > 0 ? "#22c55e" : "#f59e0b"
+  );
+}
     if (message.msg_type === "active_symbols") {
       console.log(
         "Market-list response:",
