@@ -813,8 +813,6 @@ async function startApp() {
     const appId = String(state.config?.app_id || "").trim();
 
 
-
-    
     connectPublicSocket();
   } catch (error) {
     console.error("Startup error:", error);
