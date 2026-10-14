@@ -238,10 +238,10 @@ const url = "wss://ws.derivws.com/websockets/v3";
     setPriceStatus("Waiting for market list...");
 
     send({
-      active_symbols: "brief",
-      req_id: ++state.requestId
-    });
-  };
+  ticks: "1HZ100V",
+  subscribe: 1,
+  req_id: ++state.requestId
+});
 
   socket.onmessage = event => {
     if (state.socket !== socket) return;
