@@ -327,6 +327,7 @@ function sendPublicMessage(message) {
   return true;
 }
 
+
 function connectPublicSocket() {
   if (
     state.publicSocket &&
@@ -338,6 +339,9 @@ function connectPublicSocket() {
     return;
   }
 
+  const socketUrl =
+    "wss://api.derivws.com/trading/v1/options/ws/public";
+
   setStatus(
     "priceStatus",
     "Connecting to market data...",
@@ -347,16 +351,22 @@ function connectPublicSocket() {
   let socket;
 
   try {
-    socket = new WebSocket(PUBLIC_WS_URL);
+    socket = new WebSocket(socketUrl);
   } catch (error) {
-    console.error("WebSocket creation error:", error);
+    console.error("Public WebSocket creation failed:", error);
+    setStatus(
+      "priceStatus",
+      "Could not create market connection",
+      "#ef4444"
+    );
     schedulePublicReconnect();
     return;
   }
 
   state.publicSocket = socket;
+  state.socketReady = false;
 
-  socket.onopen = () => {
+  socket.onopen = function () {
     if (state.publicSocket !== socket) return;
 
     state.socketReady = true;
@@ -364,25 +374,25 @@ function connectPublicSocket() {
 
     setStatus(
       "priceStatus",
-      "Market connection established",
+      "Market connected; loading symbols...",
       "#22c55e"
     );
 
-    setStatus(
-      "marketStatus",
-      "Loading markets...",
-      "#f59e0b"
-    );
-
-    sendPublicMessage({
+    // Request available markets.
+    socket.send(JSON.stringify({
       active_symbols: "brief",
-      product_type: "basic"
-    });
+      req_id: 1001
+    }));
 
-    subscribeToSelectedMarket();
+    // Subscribe to the default market.
+    socket.send(JSON.stringify({
+      ticks: "1HZ100V",
+      subscribe: 1,
+      req_id: 1002
+    }));
   };
 
-  socket.onmessage = event => {
+  socket.onmessage = function (event) {
     if (state.publicSocket !== socket) return;
 
     let message;
@@ -390,15 +400,34 @@ function connectPublicSocket() {
     try {
       message = JSON.parse(event.data);
     } catch (error) {
-      console.warn("Invalid market message received.");
+      console.error("Invalid market WebSocket response:", error);
       return;
     }
 
-    handlePublicMessage(message);
+    if (message.error) {
+      console.error(
+        "Deriv market API error:",
+        message.error.code,
+        message.error.message
+      );
+
+      setStatus(
+        "priceStatus",
+        "Market API error: " + message.error.message,
+        "#ef4444"
+      );
+
+      return;
+    }
+
+    // Pass valid messages to your existing application handler.
+    if (typeof handlePublicMessage === "function") {
+      handlePublicMessage(message);
+    }
   };
 
-  socket.onerror = error => {
-    console.error("Public market socket error:", error);
+  socket.onerror = function (error) {
+    console.error("Public market WebSocket error:", error);
 
     setStatus(
       "priceStatus",
@@ -407,11 +436,17 @@ function connectPublicSocket() {
     );
   };
 
-  socket.onclose = () => {
+  socket.onclose = function (event) {
     if (state.publicSocket !== socket) return;
 
     state.publicSocket = null;
     state.socketReady = false;
+
+    console.warn(
+      "Market WebSocket closed:",
+      event.code,
+      event.reason
+    );
 
     setStatus(
       "priceStatus",
@@ -421,7 +456,8 @@ function connectPublicSocket() {
 
     schedulePublicReconnect();
   };
-}
+  }
+
 
 function schedulePublicReconnect() {
   if (state.publicReconnectTimer) return;
