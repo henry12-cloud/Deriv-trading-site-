@@ -1,199 +1,68 @@
 
 /* =========================================================
-   TRADEDOLLARS — TRADING INTERFACE
-   Continuous ticks, live chart, digits analysis, proposals
+   TRADEDOLLARS — CLEAN MARKET DATA VERSION
+   Live markets, ticks, chart, analysis and account status
+   Real-money trading remains disabled.
    ========================================================= */
 
 "use strict";
 
-const PUBLIC_WS_BASE =
+const PUBLIC_WS_URL =
   "wss://api.derivws.com/trading/v1/options/ws/public";
 
 const state = {
   config: null,
   loggedIn: false,
   account: null,
-
-  publicSocket: null,
-  tradingSocket: null,
-
-  publicReady: false,
-  tradingReady: false,
-
+  socket: null,
+  connected: false,
   markets: [],
-  selectedSymbol: "",
-  selectedMarketName: "",
-
-  livePrice: null,
+  symbol: "",
+  marketName: "",
   totalTicks: 0,
-
-  priceHistory: [],
-  digitHistory: [],
-
-  direction: "RISE",
-  contractType: "CALL",
-  barrier: 5,
-  amount: 1,
-  duration: 5,
-  durationUnit: "t",
-
-  proposal: null,
-  proposalId: null,
-  askPrice: 0,
-  payout: 0,
-  quoteExpiresAt: 0,
-
+  prices: [],
+  digits: [],
   requestId: 1000,
-  pendingProposalReqId: null,
-  pendingBuyReqId: null,
-  buying: false,
-
-  activeContracts: new Map(),
-  finishedContracts: new Map(),
-
-  performance: {
-    wins: 0,
-    losses: 0,
-    profit: 0
-  },
-
-  quoteTimer: null,
-  reconnectTimer: null
+  reconnectTimer: null,
+  reconnectDelay: 3000
 };
 
-const ui = {};
+const $ = id => document.getElementById(id);
 
-function el(id) {
-  return document.getElementById(id);
-}
-
-function cacheUI() {
-  [
-    "connectionStatus",
-    "accountStatus",
-    "accountId",
-    "balance",
-    "accountType",
-    "accountTypeMessage",
-    "loginBtn",
-    "logoutBtn",
-    "marketSelect",
-    "marketName",
-    "marketCount",
-    "livePrice",
-    "liveDigit",
-    "liveDigitHistory",
-    "liveChart",
-    "priceMessage",
-    "amount",
-    "duration",
-    "contractType",
-    "barrier",
-    "barrierContainer",
-    "riseBtn",
-    "fallBtn",
-    "quoteStatus",
-    "askPrice",
-    "payout",
-    "buyBtn",
-    "tradeMessage",
-    "openContracts",
-    "tradeHistory",
-    "wins",
-    "losses",
-    "totalProfit"
-  ].forEach(id => {
-    ui[id] = el(id);
-  });
-
-  // Your HTML uses these IDs.
-  ui.liveChart = el("chart") || el("liveChart");
-  ui.marketName = el("selectedMarket");
-  ui.priceMessage = el("priceStatus");
-}
-
-function setText(element, value) {
-  if (element) {
-    element.textContent =
-      value === null || value === undefined
-        ? "--"
-        : String(value);
-  }
+function show(id, value) {
+  const element = $(id);
+  if (element) element.textContent = String(value ?? "--");
 }
 
 function money(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(2) : "--";
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(2) : "--";
 }
 
-function nextId() {
-  return ++state.requestId;
-}
-
-function send(socket, payload) {
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
+function send(payload) {
+  if (!state.socket || state.socket.readyState !== WebSocket.OPEN) {
     return false;
   }
 
   try {
-    socket.send(JSON.stringify(payload));
+    state.socket.send(JSON.stringify(payload));
     return true;
   } catch (error) {
-    console.error("WebSocket send error:", error);
+    console.error("Market send error:", error);
     return false;
   }
 }
 
-function showMessage(message) {
-  setText(ui.tradeMessage, message);
+function setConnection(message) {
+  show("connectionStatus", message);
 }
 
-function invalidateQuote(message = "Requesting a fresh quote...") {
-  clearTimeout(state.quoteTimer);
-
-  state.proposal = null;
-  state.proposalId = null;
-  state.askPrice = 0;
-  state.payout = 0;
-  state.quoteExpiresAt = 0;
-  state.pendingProposalReqId = null;
-
-  setText(ui.askPrice, "--");
-  setText(ui.payout, "--");
-  setText(ui.quoteStatus, message);
-
-  updateBuyButton();
-}
-
-function updateBuyButton() {
-  const validQuote =
-    Boolean(state.proposalId) &&
-    state.quoteExpiresAt > Date.now();
-
-  const correctAccount =
-    state.account &&
-    (
-      state.account.account_type === "demo" ||
-      (
-        state.account.account_type === "real" &&
-        state.config?.real_trading_enabled === true
-      )
-    );
-
-  const enabled =
-    state.loggedIn &&
-    state.tradingReady &&
-    correctAccount &&
-    validQuote &&
-    !state.buying;
-
-  if (ui.buyBtn) {
-    ui.buyBtn.disabled = !enabled;
-  }
+function setPriceStatus(message) {
+  show("priceStatus", message);
 }
 
 /* =========================================================
-   SERVER CONFIG AND ACCOUNT
+   ACCOUNT STATUS
 ========================================================= */
 
 async function loadConfig() {
@@ -204,56 +73,62 @@ async function loadConfig() {
     });
 
     if (!response.ok) {
-      throw new Error("Unable to load server configuration.");
+      throw new Error("Server configuration request failed.");
     }
 
     state.config = await response.json();
 
-    // Never enable real trading from the browser alone.
-    if (
-      ui.accountType &&
-      state.config.real_trading_enabled !== true
-    ) {
-      const realOption = Array.from(ui.accountType.options)
+    // Never allow real trading in this version.
+    const accountType = $("accountType");
+
+    if (accountType) {
+      const realOption = [...accountType.options]
         .find(option => option.value === "real");
 
-      if (realOption) {
-        realOption.disabled = true;
-      }
+      if (realOption) realOption.disabled = true;
+      accountType.value = "demo";
     }
-
-    return true;
   } catch (error) {
-    console.error(error);
-    setText(ui.connectionStatus, "Server configuration unavailable.");
-    return false;
+    console.error("Config error:", error);
+    setConnection("Server configuration unavailable");
   }
 }
 
-async function checkSession() {
+async function checkAccount() {
   try {
     const response = await fetch("/api/session", {
       cache: "no-store",
       credentials: "same-origin"
     });
 
-    if (!response.ok) return false;
+    if (!response.ok) {
+      throw new Error("Could not check login session.");
+    }
 
     const data = await response.json();
     state.loggedIn = Boolean(data.authenticated);
 
-    return state.loggedIn;
+    if (!state.loggedIn) {
+      state.account = null;
+      show("accountStatus", "Log in first");
+      show("accountId", "--");
+      show("balance", "--");
+      if ($("loginBtn")) $("loginBtn").hidden = false;
+      if ($("logoutBtn")) $("logoutBtn").hidden = true;
+      return;
+    }
+
+    if ($("loginBtn")) $("loginBtn").hidden = true;
+    if ($("logoutBtn")) $("logoutBtn").hidden = false;
+
+    await loadAccount();
   } catch (error) {
-    console.error("Session check:", error);
-    return false;
+    console.error("Session error:", error);
+    show("accountStatus", "Session check failed");
   }
 }
 
 async function loadAccount() {
-  if (!state.loggedIn) return false;
-
-  setText(ui.accountStatus, "Checking account...");
-
   try {
     const response = await fetch("/api/account", {
       cache: "no-store",
@@ -262,57 +137,34 @@ async function loadAccount() {
 
     const data = await response.json();
 
-    if (!response.ok) {
-      throw new Error(data.error || "Account request failed.");
-    }
-
-    if (!data.account) {
-      throw new Error("No Deriv trading account was returned.");
+    if (!response.ok || !data.account) {
+      throw new Error(data.error || "Demo account unavailable.");
     }
 
     state.account = data.account;
 
-    setText(ui.accountStatus, "Connected to Deriv ✓");
-    setText(ui.accountId, state.account.account_id || state.account.id);
-    setText(
-      ui.balance,
-      `${money(state.account.balance)} ${state.account.currency || "USD"}`
-    );
-
-    // Reflect the actual server-selected account.
-    if (ui.accountType) {
-      ui.accountType.value =
-        state.account.account_type || "demo";
+    if (state.account.account_type !== "demo") {
+      state.account = null;
+      throw new Error("Only a verified demo account is allowed.");
     }
 
-    setText(
-      ui.accountTypeMessage,
-      `Connected account: ${state.account.account_type || "unknown"}`
+    show("accountStatus", "Demo account connected");
+    show(
+      "accountId",
+      state.account.account_id || state.account.id || "--"
     );
-
-    return true;
+    show(
+      "balance",
+      `${money(state.account.balance)} ${state.account.currency || "USD"}`
+    );
+    show("accountTypeMessage", "Demo Account selected");
   } catch (error) {
     console.error("Account error:", error);
-    setText(ui.accountStatus, "Account unavailable");
-    showMessage(error.message);
-    return false;
+    show("accountStatus", "Demo account unavailable");
+    show("accountId", "--");
+    show("balance", "--");
+    show("accountTypeMessage", error.message);
   }
-}
-
-function showLoggedIn() {
-  if (ui.loginBtn) ui.loginBtn.style.display = "none";
-  if (ui.logoutBtn) ui.logoutBtn.hidden = false;
-}
-
-function showLoggedOut() {
-  if (ui.loginBtn) ui.loginBtn.style.display = "";
-  if (ui.logoutBtn) ui.logoutBtn.hidden = true;
-
-  setText(ui.accountStatus, "Log in first");
-  setText(ui.accountId, "--");
-  setText(ui.balance, "--");
-
-  invalidateQuote("Log in to request a quote.");
 }
 
 async function logout() {
@@ -322,110 +174,152 @@ async function logout() {
       credentials: "same-origin"
     });
   } catch (error) {
-    console.error("Logout:", error);
+    console.error("Logout error:", error);
   }
-
-  closeSocket(state.tradingSocket);
-  closeSocket(state.publicSocket);
 
   state.loggedIn = false;
   state.account = null;
-  state.tradingReady = false;
-  state.publicReady = false;
-  state.activeContracts.clear();
 
-  showLoggedOut();
+  show("accountStatus", "Log in first");
+  show("accountId", "--");
+  show("balance", "--");
 
-  setText(ui.connectionStatus, "Logged out");
+  if ($("loginBtn")) $("loginBtn").hidden = false;
+  if ($("logoutBtn")) $("logoutBtn").hidden = true;
 }
 
 /* =========================================================
-   SOCKET MANAGEMENT
+   PUBLIC MARKET SOCKET
 ========================================================= */
 
-function closeSocket(socket) {
-  if (socket) {
-    try {
-      socket.onclose = null;
-      socket.close();
-    } catch (_) {}
-  }
-}
-
 function connectPublicSocket() {
+  clearTimeout(state.reconnectTimer);
+
   if (
-    state.publicSocket &&
+    state.socket &&
     (
-      state.publicSocket.readyState === WebSocket.OPEN ||
-      state.publicSocket.readyState === WebSocket.CONNECTING
+      state.socket.readyState === WebSocket.OPEN ||
+      state.socket.readyState === WebSocket.CONNECTING
     )
   ) {
     return;
   }
 
-  const url = PUBLIC_WS_BASE;
+  setConnection("Connecting to public market data...");
+  setPriceStatus("Opening market data connection...");
 
-  setText(ui.connectionStatus, "Connecting to market data...");
+  let socket;
 
-  const socket = new WebSocket(url);
-  state.publicSocket = socket;
+  try {
+    socket = new WebSocket(PUBLIC_WS_URL);
+  } catch (error) {
+    setConnection("Could not create market connection");
+    setPriceStatus(error.message);
+    scheduleReconnect();
+    return;
+  }
+
+  state.socket = socket;
+  state.connected = false;
+
+  // Show a useful message if the server never responds.
+  const connectionTimeout = setTimeout(() => {
+    if (
+      state.socket === socket &&
+      socket.readyState === WebSocket.CONNECTING
+    ) {
+      setConnection("Market connection is taking too long");
+      setPriceStatus("Check your internet connection and reload.");
+    }
+  }, 10000);
 
   socket.onopen = () => {
-    if (state.publicSocket !== socket) return;
+    if (state.socket !== socket) return;
 
-    state.publicReady = true;
-    setText(ui.connectionStatus, "Market data connected");
+    clearTimeout(connectionTimeout);
+    state.connected = true;
+    state.reconnectDelay = 3000;
 
-send(socket, {
-  active_symbols: "brief",
-  req_id: nextId()
-});
+    setConnection("Market socket connected; requesting markets...");
+    setPriceStatus("Waiting for market list...");
+
+    send({
+      active_symbols: "brief",
+      product_type: "basic",
+      req_id: ++state.requestId
+    });
+  };
 
   socket.onmessage = event => {
-    if (state.publicSocket !== socket) return;
+    if (state.socket !== socket) return;
 
     let data;
 
     try {
       data = JSON.parse(event.data);
-    } catch (_) {
+    } catch (error) {
+      console.error("Invalid market response:", event.data);
+      setPriceStatus("Received an unreadable market response.");
       return;
     }
 
-    handlePublicMessage(data);
+    console.log("Tradedollars market response:", data);
+    handleMarketMessage(data);
   };
 
   socket.onerror = error => {
-    console.error("Public WebSocket error:", error);
+    if (state.socket !== socket) return;
+
+    console.error("Public socket error:", error);
+    setConnection("Market socket error");
+    setPriceStatus(
+      "The browser could not complete the market connection. Check internet access."
+    );
   };
 
-  socket.onclose = () => {
-    if (state.publicSocket !== socket) return;
+  socket.onclose = event => {
+    clearTimeout(connectionTimeout);
 
-    state.publicReady = false;
-    setText(ui.connectionStatus, "Market data disconnected");
+    if (state.socket !== socket) return;
 
-    clearTimeout(state.reconnectTimer);
+    state.connected = false;
 
-    state.reconnectTimer = setTimeout(() => {
-      connectPublicSocket();
-    }, 3000);
+    setConnection(`Market disconnected (code ${event.code})`);
+    setPriceStatus(
+      event.reason
+        ? `Connection closed: ${event.reason}`
+        : "The market connection closed. Reconnecting..."
+    );
+
+    scheduleReconnect();
   };
 }
 
+function scheduleReconnect() {
+  clearTimeout(state.reconnectTimer);
 
+  state.reconnectTimer = setTimeout(() => {
+    connectPublicSocket();
+  }, state.reconnectDelay);
 
-function handlePublicMessage(data) {
-  console.log("PUBLIC MARKET RESPONSE:", data);
+  state.reconnectDelay = Math.min(
+    state.reconnectDelay * 2,
+    30000
+  );
+}
 
+function handleMarketMessage(data) {
   if (data.error || data.errors) {
+    const errorObject = data.error || data.errors[0] || {};
     const message =
-      data.error?.message ||
-      data.errors?.[0]?.message ||
-      JSON.stringify(data.error || data.errors);
+      errorObject.message ||
+      errorObject.code ||
+      JSON.stringify(errorObject);
 
-    setText(ui.connectionStatus, "Market API error");
-    setText(ui.priceMessage, message);
+    console.error("Market API returned an error:", data);
+    setConnection("Market API rejected the request");
+    setPriceStatus(message);
+    show("marketStatus", `Market API error: ${message}`);
     return;
   }
 
@@ -438,12 +332,15 @@ function handlePublicMessage(data) {
       item.underlying_symbol || item.symbol
     );
 
-    setText(
-      ui.priceMessage,
-      `Received ${state.markets.length} markets.`
-    );
+    show("marketStatus", `${state.markets.length} markets received`);
+
+    if (state.markets.length === 0) {
+      setPriceStatus("The API returned an empty market list.");
+      return;
+    }
 
     populateMarkets();
+    setConnection("Market list loaded");
     return;
   }
 
@@ -456,20 +353,18 @@ function handlePublicMessage(data) {
     return;
   }
 
-  setText(
-    ui.priceMessage,
-    "Market response: " +
-      JSON.stringify(data).slice(0, 300)
-  );
+  // Some responses may wrap fields differently. Show them visibly.
+  const preview = JSON.stringify(data).slice(0, 350);
+
+  setPriceStatus(`API response received: ${preview}`);
+  show("marketStatus", "Received a response; checking its format.");
 }
-   
 
 function populateMarkets() {
-  if (!ui.marketSelect) return;
+  const select = $("marketSelect");
+  if (!select) return;
 
-  const previous = state.selectedSymbol;
-
-  ui.marketSelect.replaceChildren();
+  select.replaceChildren();
 
   state.markets.forEach(market => {
     const symbol =
@@ -484,156 +379,166 @@ function populateMarkets() {
     option.value = symbol;
     option.textContent = name;
 
-    ui.marketSelect.appendChild(option);
+    select.appendChild(option);
   });
 
-  setText(ui.marketCount, `${state.markets.length} markets loaded`);
+  show("marketStatus", `${state.markets.length} markets loaded`);
 
-  if (!state.markets.length) {
-    setText(ui.priceMessage, "No markets were returned.");
-    return;
-  }
-
-  const selectedExists = state.markets.some(m =>
-    (m.underlying_symbol || m.symbol) === previous
+  const preferred = state.markets.find(m =>
+    (m.underlying_symbol || m.symbol) === "1HZ100V"
   );
 
-  if (selectedExists) {
-    ui.marketSelect.value = previous;
-  } else {
-    const preferred = state.markets.find(m =>
-      (m.underlying_symbol || m.symbol) === "1HZ100V"
-    );
+  select.value = preferred
+    ? (preferred.underlying_symbol || preferred.symbol)
+    : (state.markets[0].underlying_symbol || state.markets[0].symbol);
 
-    ui.marketSelect.value =
-      preferred
-        ? (preferred.underlying_symbol || preferred.symbol)
-        : (state.markets[0].underlying_symbol || state.markets[0].symbol);
-  }
-
-  selectMarket(ui.marketSelect.value);
+  selectMarket(select.value);
 }
 
 function selectMarket(symbol) {
-  if (!symbol || !state.publicReady) return;
+  if (!symbol || !state.connected) return;
 
-  state.selectedSymbol = symbol;
+  state.symbol = symbol;
 
   const market = state.markets.find(item =>
     (item.underlying_symbol || item.symbol) === symbol
   );
 
-  state.selectedMarketName =
+  state.marketName =
     market?.underlying_symbol_name ||
     market?.display_name ||
     symbol;
 
-  setText(ui.marketName, state.selectedMarketName);
-  setText(ui.priceMessage, "Subscribing to live ticks...");
+  show("selectedMarket", state.marketName);
+  show("livePrice", "--");
+  show("liveDigit", "--");
 
-  state.priceHistory = [];
-  state.digitHistory = [];
   state.totalTicks = 0;
+  state.prices = [];
+  state.digits = [];
 
-  invalidateQuote("Market changed. Request a new quote.");
+  updateDigitHistory();
+  updateDigitsAnalysis();
+  updateMarketAnalysis();
+  drawChart();
 
-  // Replace the old tick subscription cleanly.
-  send(state.publicSocket, {
-    forget_all: "ticks"
+  setPriceStatus(`Subscribing to ${state.marketName}...`);
+
+  // Forget old tick subscriptions, then subscribe to this market.
+  send({
+    forget_all: "ticks",
+    req_id: ++state.requestId
   });
 
-  send(state.publicSocket, {
+  send({
     ticks: symbol,
     subscribe: 1,
-    req_id: nextId()
+    req_id: ++state.requestId
   });
 }
 
 /* =========================================================
-   CONTINUOUS TICK PROCESSING
+   LIVE TICK PROCESSING
 ========================================================= */
 
 function processTick(tick) {
-  if (
-    tick.symbol &&
-    state.selectedSymbol &&
-    tick.symbol !== state.selectedSymbol
-  ) {
+  const symbol = tick.underlying_symbol || tick.symbol;
+
+  if (symbol && state.symbol && symbol !== state.symbol) {
     return;
   }
 
   const price = Number(tick.quote);
 
-  if (!Number.isFinite(price)) return;
+  if (!Number.isFinite(price)) {
+    console.warn("Tick has no valid quote:", tick);
+    return;
+  }
 
-  state.livePrice = price;
+  state.totalTicks++;
+  state.prices.push(price);
 
-  // This counter never depends on chart-history length.
-  state.totalTicks += 1;
+  if (state.prices.length > 50) {
+    state.prices.shift();
+  }
 
-  setText(ui.livePrice, price.toFixed(2));
-  setText(
-    ui.priceMessage,
+  const decimals = Math.max(
+    0,
+    Math.min(8, Number(tick.pip_size ?? 2))
+  );
+
+  const formatted = price.toFixed(decimals);
+  const digit = Number(formatted.slice(-1));
+
+  state.digits.push(digit);
+
+  if (state.digits.length > 2000) {
+    state.digits.shift();
+  }
+
+  show("livePrice", formatted);
+  show("liveDigit", digit);
+
+  setConnection("Live market data connected");
+  setPriceStatus(
     `Live • ${state.totalTicks.toLocaleString()} ticks received`
   );
 
-  const formatted = price.toFixed(
-    Math.max(0, Math.min(8, Number(tick.pip_size ?? 2)))
-  );
-
-  const digit = Number(formatted.slice(-1));
-
-  state.digitHistory.push(digit);
-
-  // Retain 2,000 digits for analysis; the stream continues.
-  if (state.digitHistory.length > 2000) {
-    state.digitHistory.shift();
-  }
-
-  state.priceHistory.push(price);
-
-  // Chart stores only the latest 50 points.
-  if (state.priceHistory.length > 50) {
-    state.priceHistory.shift();
-  }
-
-  setText(ui.liveDigit, digit);
-
-  updateLiveDigitHistory();
+  updateDigitHistory();
   updateDigitsAnalysis();
   updateMarketAnalysis();
   drawChart();
 }
 
-function updateLiveDigitHistory() {
-  if (!ui.liveDigitHistory) return;
+function updateDigitHistory() {
+  const container = $("liveDigitHistory");
+  if (!container) return;
 
-  ui.liveDigitHistory.replaceChildren();
+  container.replaceChildren();
 
-  state.digitHistory.slice(-12).forEach(digit => {
+  if (!state.digits.length) {
     const span = document.createElement("span");
+    span.className = "muted";
+    span.textContent = "Waiting for ticks...";
+    container.appendChild(span);
+    return;
+  }
 
+  state.digits.slice(-12).forEach(digit => {
+    const span = document.createElement("span");
     span.textContent = digit;
     span.style.cssText =
       "background:#334155;padding:7px 10px;border-radius:7px;";
-
-    ui.liveDigitHistory.appendChild(span);
+    container.appendChild(span);
   });
 }
 
 function updateDigitsAnalysis() {
-  const digits = state.digitHistory;
+  const digits = state.digits;
   const total = digits.length;
 
-  setText(el("digitsSample"), `${total.toLocaleString()} ticks`);
+  show("digitsSample", `${total.toLocaleString()} ticks`);
 
-  if (!total) return;
+  if (!total) {
+    show("mostFrequentDigit", "--");
+    show("leastFrequentDigit", "--");
+    show("evenPercentage", "--");
+    show("oddPercentage", "--");
+    show("overFivePercentage", "--");
+    show("underFivePercentage", "--");
+    show("repeatedDigit", "--");
+    show("digitBias", "WAIT");
+    show("digitConfidence", "LOW");
+    show("digitAnalysisMessage", "Waiting for live tick data.");
+    return;
+  }
 
   const counts = Array(10).fill(0);
   digits.forEach(digit => counts[digit]++);
 
   const most = Math.max(...counts);
-  const least = Math.min(...counts);
+  const leastSeen = counts.filter(count => count > 0);
+  const least = Math.min(...leastSeen);
 
   const mostDigit = counts.indexOf(most);
   const leastDigit = counts.indexOf(least);
@@ -645,6 +550,8 @@ function updateDigitsAnalysis() {
 
   const evenPct = even / total * 100;
   const oddPct = odd / total * 100;
+  const overPct = over / total * 100;
+  const underPct = under / total * 100;
 
   let bias = "NEUTRAL";
   let confidence = "LOW";
@@ -656,46 +563,53 @@ function updateDigitsAnalysis() {
       bias = evenPct > oddPct ? "EVEN BIAS" : "ODD BIAS";
     }
 
-    if (difference >= 18) {
-      confidence = "MEDIUM";
-    }
+    if (difference >= 18) confidence = "MEDIUM";
   }
 
-  const repeated =
-    total >= 2 &&
-    digits[total - 1] === digits[total - 2];
+  show(
+    "mostFrequentDigit",
+    `${mostDigit} (${(most / total * 100).toFixed(1)}%)`
+  );
 
-  setText(el("mostFrequentDigit"), `${mostDigit} (${(most / total * 100).toFixed(1)}%)`);
-  setText(el("leastFrequentDigit"), `${leastDigit} (${(least / total * 100).toFixed(1)}%)`);
-  setText(el("evenPercentage"), `${evenPct.toFixed(1)}%`);
-  setText(el("oddPercentage"), `${oddPct.toFixed(1)}%`);
-  setText(el("overFivePercentage"), `${(over / total * 100).toFixed(1)}%`);
-  setText(el("underFivePercentage"), `${(under / total * 100).toFixed(1)}%`);
-  setText(el("repeatedDigit"), repeated ? "YES" : "NO");
-  setText(el("digitBias"), bias);
-  setText(el("digitConfidence"), confidence);
+  show(
+    "leastFrequentDigit",
+    `${leastDigit} (${(least / total * 100).toFixed(1)}%)`
+  );
 
-  setText(
-    el("digitAnalysisMessage"),
+  show("evenPercentage", `${evenPct.toFixed(1)}%`);
+  show("oddPercentage", `${oddPct.toFixed(1)}%`);
+  show("overFivePercentage", `${overPct.toFixed(1)}%`);
+  show("underFivePercentage", `${underPct.toFixed(1)}%`);
+
+  show(
+    "repeatedDigit",
+    total >= 2 && digits[total - 1] === digits[total - 2]
+      ? "YES"
+      : "NO"
+  );
+
+  show("digitBias", bias);
+  show("digitConfidence", confidence);
+
+  show(
+    "digitAnalysisMessage",
     total < 200
-      ? `Collecting data: ${total}/200 ticks for the initial sample.`
-      : "Historical digit frequencies do not reliably predict the next digit."
+      ? `Collecting initial sample: ${total}/200 ticks.`
+      : "Historical frequencies do not reliably predict the next digit."
   );
 }
 
 /* =========================================================
-   CHART — INDEPENDENT OF TOTAL TICK COUNT
+   PRICE CHART
 ========================================================= */
 
 function drawChart() {
-  const canvas = ui.liveChart;
-
-  if (!canvas?.getContext) return;
+  const canvas = $("chart");
+  if (!canvas) return;
 
   const rect = canvas.getBoundingClientRect();
   const width = Math.max(300, Math.floor(rect.width));
   const height = Math.max(220, Math.floor(rect.height));
-
   const dpr = window.devicePixelRatio || 1;
 
   canvas.width = width * dpr;
@@ -705,20 +619,21 @@ function drawChart() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  const prices = state.priceHistory;
+  if (state.prices.length < 2) return;
 
-  if (prices.length < 2) return;
-
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
+  const min = Math.min(...state.prices);
+  const max = Math.max(...state.prices);
   const range = max - min || 1;
   const pad = 20;
 
   ctx.beginPath();
 
-  prices.forEach((price, index) => {
-    const x = pad + index / (prices.length - 1) * (width - pad * 2);
-    const y = height - pad - (price - min) / range * (height - pad * 2);
+  state.prices.forEach((price, index) => {
+    const x =
+      pad + index / (state.prices.length - 1) * (width - pad * 2);
+
+    const y =
+      height - pad - (price - min) / range * (height - pad * 2);
 
     if (index === 0) ctx.moveTo(x, y);
     else ctx.lineTo(x, y);
@@ -730,40 +645,40 @@ function drawChart() {
 }
 
 /* =========================================================
-   SIMPLE PRICE ANALYSIS
+   SIMPLE MARKET ANALYSIS
 ========================================================= */
 
 function updateMarketAnalysis() {
-  const prices = state.priceHistory;
+  const prices = state.prices;
 
   if (prices.length < 20) {
-    setText(el("analysisTrend"), "WAITING");
-    setText(el("analysisMomentum"), "WAITING");
-    setText(el("analysisSignal"), "WAIT");
-    setText(el("analysisConfidence"), "LOW");
-    setText(el("analysisReason"), "Collecting 20 chart points.");
+    show("analysisTrend", "WAITING");
+    show("analysisMomentum", "WAITING");
+    show("analysisSupport", "--");
+    show("analysisResistance", "--");
+    show("analysisSignal", "WAIT");
+    show("analysisConfidence", "LOW");
+    show("analysisReason", "Collecting 20 live price points.");
     return;
   }
 
-  const average = list =>
+  const avg = list =>
     list.reduce((sum, value) => sum + value, 0) / list.length;
 
   const shortChange =
-    average(prices.slice(-5)) -
-    average(prices.slice(-10, -5));
+    avg(prices.slice(-5)) - avg(prices.slice(-10, -5));
 
   const mediumChange =
-    average(prices.slice(-10)) -
-    average(prices.slice(-20, -10));
+    avg(prices.slice(-10)) - avg(prices.slice(-20, -10));
 
   let trend = "NEUTRAL";
 
   if (shortChange > 0 && mediumChange > 0) trend = "BULLISH";
   if (shortChange < 0 && mediumChange < 0) trend = "BEARISH";
 
-  const structure = prices.slice(-20);
-  const support = Math.min(...structure);
-  const resistance = Math.max(...structure);
+  const last20 = prices.slice(-20);
+  const support = Math.min(...last20);
+  const resistance = Math.max(...last20);
   const range = resistance - support;
 
   const momentumRatio =
@@ -773,9 +688,9 @@ function updateMarketAnalysis() {
     momentumRatio >= 0.25 ? "STRONG" :
     momentumRatio >= 0.10 ? "MODERATE" : "WEAK";
 
-  const recent = prices.slice(-8);
   let up = 0;
   let down = 0;
+  const recent = prices.slice(-8);
 
   for (let i = 1; i < recent.length; i++) {
     if (recent[i] > recent[i - 1]) up++;
@@ -784,13 +699,13 @@ function updateMarketAnalysis() {
 
   const moves = up + down;
   const consistency =
-    moves ? Math.max(up, down) / moves : 0;
+    moves > 0 ? Math.max(up, down) / moves : 0;
 
   const nearSupport =
-    range > 0 && state.livePrice - support <= range * 0.15;
+    range > 0 && prices[prices.length - 1] - support <= range * 0.15;
 
   const nearResistance =
-    range > 0 && resistance - state.livePrice <= range * 0.15;
+    range > 0 && resistance - prices[prices.length - 1] <= range * 0.15;
 
   let signal = "WAIT";
 
@@ -801,9 +716,7 @@ function updateMarketAnalysis() {
     !nearResistance
   ) {
     signal = "RISE";
-  }
-
-  if (
+  } else if (
     trend === "BEARISH" &&
     momentum !== "WEAK" &&
     consistency >= 0.60 &&
@@ -812,757 +725,118 @@ function updateMarketAnalysis() {
     signal = "FALL";
   }
 
-  setText(el("analysisTrend"), trend);
-  setText(el("analysisMomentum"), momentum);
-  setText(el("analysisSupport"), support.toFixed(2));
-  setText(el("analysisResistance"), resistance.toFixed(2));
-  setText(el("analysisSignal"), signal);
-  setText(
-    el("analysisConfidence"),
-    signal === "WAIT" ? "LOW" :
-      momentum === "STRONG" && consistency >= 0.75
-        ? "HIGH" : "MEDIUM"
+  show("analysisTrend", trend);
+  show("analysisMomentum", momentum);
+  show("analysisSupport", support.toFixed(2));
+  show("analysisResistance", resistance.toFixed(2));
+  show("analysisSignal", signal);
+
+  show(
+    "analysisConfidence",
+    signal === "WAIT"
+      ? "LOW"
+      : momentum === "STRONG" && consistency >= 0.75
+        ? "HIGH"
+        : "MEDIUM"
   );
 
-  setText(
-    el("analysisReason"),
+  show(
+    "analysisReason",
     signal === "WAIT"
       ? "Conditions are not sufficiently confirmed. Wait."
-      : `${trend} conditions detected. This is not a guarantee of the next price movement.`
+      : `${trend} conditions detected. This does not predict the next move with certainty.`
   );
 }
 
 /* =========================================================
-   AUTHENTICATED TRADING CONNECTION
-========================================================= */
-
-async function connectTradingSocket() {
-  if (!state.loggedIn) return;
-
-  if (
-    state.tradingSocket &&
-    (
-      state.tradingSocket.readyState === WebSocket.OPEN ||
-      state.tradingSocket.readyState === WebSocket.CONNECTING
-    )
-  ) {
-    return;
-  }
-
-  setText(ui.connectionStatus, "Connecting to trading account...");
-
-  try {
-    const response = await fetch("/api/trading-connection", {
-      credentials: "same-origin",
-      cache: "no-store"
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || !data.ws_url) {
-      throw new Error(data.error || "Trading connection URL unavailable.");
-    }
-
-    const socket = new WebSocket(data.ws_url);
-    state.tradingSocket = socket;
-
-    socket.onopen = () => {
-      if (state.tradingSocket !== socket) return;
-
-      state.tradingReady = true;
-
-      setText(ui.connectionStatus, "Trading connection ready");
-      updateBuyButton();
-
-      send(socket, {
-        balance: 1,
-        subscribe: 1,
-        req_id: nextId()
-      });
-
-      requestQuote();
-    };
-
-    socket.onmessage = event => {
-      if (state.tradingSocket !== socket) return;
-
-      let data;
-
-      try {
-        data = JSON.parse(event.data);
-      } catch (_) {
-        return;
-      }
-
-      handleTradingMessage(data);
-     }
-     socket.onerror = error => {
-      console.error("Trading WebSocket error:", error);
-      setText(ui.connectionStatus, "Trading connection error");
-    };
-
-    socket.onclose = () => {
-      if (state.tradingSocket !== socket) return;
-
-      state.tradingReady = false;
-      state.tradingSocket = null;
-      state.buying = false;
-      state.pendingBuyReqId = null;
-
-      invalidateQuote("Trading disconnected. Reconnecting...");
-
-      setText(ui.connectionStatus, "Trading disconnected");
-
-      if (state.loggedIn) {
-        clearTimeout(state.reconnectTimer);
-
-        state.reconnectTimer = setTimeout(() => {
-          connectTradingSocket();
-        }, 3000);
-      }
-    };
-
-  } catch (error) {
-    console.error("Trading connection:", error);
-
-    state.tradingReady = false;
-    setText(ui.connectionStatus, "Trading connection failed");
-    showMessage(error.message);
-  }
-}
-
-
-/* =========================================================
-   QUOTE REQUESTS
-========================================================= */
-
-function requestQuote() {
-  if (!state.loggedIn || !state.tradingReady) {
-    invalidateQuote("Connect your Deriv account first.");
-    return;
-  }
-
-  if (!state.account || !state.selectedSymbol) {
-    invalidateQuote("Select a market and account first.");
-    return;
-  }
-
-  if (state.buying) {
-    setText(ui.quoteStatus, "Please wait for the current trade.");
-    return;
-  }
-
-  const amount = Number(ui.amount?.value ?? state.amount);
-  const duration = Number(ui.duration?.value ?? state.duration);
-
-  if (!Number.isFinite(amount) || amount <= 0) {
-    invalidateQuote("Enter a valid stake amount.");
-    return;
-  }
-
-  if (!Number.isFinite(duration) || duration < 1) {
-    invalidateQuote("Enter a valid duration.");
-    return;
-  }
-
-  state.amount = amount;
-  state.duration = duration;
-
-  if (
-    state.account.currency &&
-    state.account.currency !== "USD"
-  ) {
-    invalidateQuote(
-      `Your account currency is ${state.account.currency}. Check your stake settings.`
-    );
-    return;
-  }
-
-  invalidateQuote("Requesting a fresh quote...");
-
-  const reqId = nextId();
-  state.pendingProposalReqId = reqId;
-
-  const payload = {
-    proposal: 1,
-    amount: state.amount,
-    basis: "stake",
-    contract_type: state.contractType,
-    currency: state.account.currency || "USD",
-    duration: state.duration,
-    duration_unit: state.durationUnit,
-    underlying_symbol: state.selectedSymbol,
-    product_type: "basic",
-    req_id: reqId
-  };
-
-  if (
-    state.contractType === "DIGITOVER" ||
-    state.contractType === "DIGITUNDER"
-  ) {
-    payload.barrier = String(state.barrier);
-  }
-
-  if (!send(state.tradingSocket, payload)) {
-    state.pendingProposalReqId = null;
-    invalidateQuote("Could not send the quote request.");
-  }
-}
-
-
-/* =========================================================
-   TRADING MESSAGE HANDLER
-========================================================= */
-
-function handleTradingMessage(data) {
-  if (data.error) {
-    const message =
-      data.error.message || "Deriv returned a trading error.";
-
-    console.error("Deriv trading error:", data.error);
-
-    if (data.req_id === state.pendingBuyReqId) {
-      state.pendingBuyReqId = null;
-      state.buying = false;
-    }
-
-    if (data.req_id === state.pendingProposalReqId) {
-      state.pendingProposalReqId = null;
-    }
-
-    setText(ui.quoteStatus, message);
-    showMessage(message);
-    updateBuyButton();
-    return;
-  }
-
-  const proposal = data.proposal || data.data?.proposal;
-
-  if (
-    proposal &&
-    (
-      data.req_id === state.pendingProposalReqId ||
-      data.echo_req?.req_id === state.pendingProposalReqId
-    )
-  ) {
-    state.pendingProposalReqId = null;
-
-    state.proposal = proposal;
-    state.proposalId = proposal.id || null;
-    state.askPrice = Number(proposal.ask_price || 0);
-    state.payout = Number(proposal.payout || 0);
-
-    // Do not allow a quote to remain usable indefinitely.
-    state.quoteExpiresAt = Date.now() + 15000;
-
-    setText(ui.askPrice, money(state.askPrice));
-    setText(ui.payout, money(state.payout));
-    setText(ui.quoteStatus, "Quote received ✓");
-
-    clearTimeout(state.quoteTimer);
-
-    state.quoteTimer = setTimeout(() => {
-      if (state.quoteExpiresAt <= Date.now()) {
-        invalidateQuote("Quote expired. Request a new quote.");
-      }
-    }, 15100);
-
-    updateBuyButton();
-    return;
-  }
-
-  const buy = data.buy || data.data?.buy;
-
-  if (
-    buy &&
-    (
-      data.req_id === state.pendingBuyReqId ||
-      data.echo_req?.req_id === state.pendingBuyReqId
-    )
-  ) {
-    state.pendingBuyReqId = null;
-    state.buying = false;
-
-    if (buy.contract_id) {
-      state.activeContracts.set(
-        String(buy.contract_id),
-        {
-          contract_id: buy.contract_id,
-          buy_price: Number(buy.buy_price || state.askPrice),
-          startedAt: Date.now()
-        }
-      );
-
-      send(state.tradingSocket, {
-        proposal_open_contract: 1,
-        contract_id: buy.contract_id,
-        subscribe: 1,
-        req_id: nextId()
-      });
-
-      showMessage(
-        `Trade purchased successfully. Contract ID: ${buy.contract_id}`
-      );
-
-      setText(ui.quoteStatus, "Trade purchased ✓");
-      invalidateQuote("Trade placed. Request a fresh quote.");
-      renderOpenContracts();
-    } else {
-      showMessage("The purchase response did not include a contract ID.");
-    }
-
-    updateBuyButton();
-    return;
-  }
-
-  const balance = data.balance || data.data?.balance;
-
-  if (balance) {
-    if (state.account) {
-      state.account.balance = Number(balance.balance);
-      state.account.currency =
-        balance.currency || state.account.currency;
-    }
-
-    setText(
-      ui.balance,
-      `${money(balance.balance)} ${balance.currency || "USD"}`
-    );
-    return;
-  }
-
-  const contract =
-    data.proposal_open_contract ||
-    data.data?.proposal_open_contract;
-
-  if (contract) {
-    handleContractUpdate(contract);
-  }
-          }
-/* =========================================================
-   BUY CURRENT QUOTE
-========================================================= */
-
-function buyCurrentQuote() {
-  if (state.buying) return;
-
-  if (!state.loggedIn || !state.tradingReady) {
-    showMessage("Connect to Deriv before purchasing.");
-    return;
-  }
-
-  if (!state.account || !state.proposalId) {
-    showMessage("Request a valid quote first.");
-    return;
-  }
-
-  if (state.quoteExpiresAt <= Date.now()) {
-    invalidateQuote("Quote expired. Request a new quote.");
-    return;
-  }
-
-  if (
-    state.account.account_type === "real" &&
-    state.config?.real_trading_enabled !== true
-  ) {
-    showMessage("Real trading is disabled by the server.");
-    return;
-  }
-
-  const confirmed = window.confirm(
-    `Confirm ${state.account.account_type || "demo"} trade?\n\n` +
-    `Market: ${state.selectedMarketName}\n` +
-    `Contract: ${state.contractType}\n` +
-    `Stake: ${money(state.askPrice)} ${state.account.currency || "USD"}\n` +
-    `Potential payout: ${money(state.payout)}\n\n` +
-    `Only continue if these details are correct.`
-  );
-
-  if (!confirmed) return;
-
-  const proposalId = state.proposalId;
-  const askPrice = state.askPrice;
-
-  state.buying = true;
-  state.pendingBuyReqId = nextId();
-
-  const reqId = state.pendingBuyReqId;
-
-  updateBuyButton();
-  showMessage("Sending purchase request...");
-
-  const sent = send(state.tradingSocket, {
-    buy: proposalId,
-    price: askPrice,
-    req_id: reqId
-  });
-
-  if (!sent) {
-    state.buying = false;
-    state.pendingBuyReqId = null;
-
-    showMessage("Purchase request could not be sent.");
-    updateBuyButton();
-  }
-}
-
-
-/* =========================================================
-   CONTRACT UPDATES AND HISTORY
-========================================================= */
-
-function handleContractUpdate(contract) {
-  const id = String(contract.contract_id || "");
-
-  if (!id) return;
-
-  const existing = state.activeContracts.get(id) || {};
-
-  const updated = {
-    ...existing,
-    contract_id: contract.contract_id,
-    buy_price: Number(
-      contract.buy_price ?? existing.buy_price ?? 0
-    ),
-    current_spot: contract.current_spot,
-    status: contract.status || "open",
-    profit: Number(contract.profit || 0),
-    payout: Number(contract.payout || 0),
-    is_sold: Boolean(contract.is_sold),
-    is_expired: Boolean(contract.is_expired)
-  };
-
-  const finished =
-    updated.is_sold ||
-    updated.is_expired ||
-    ["won", "lost", "sold"].includes(updated.status);
-
-  if (finished) {
-    state.activeContracts.delete(id);
-    state.finishedContracts.set(id, updated);
-
-    if (state.finishedContracts.size > 100) {
-      const oldest =
-        state.finishedContracts.keys().next().value;
-
-      state.finishedContracts.delete(oldest);
-    }
-
-    if (!existing.resultRecorded) {
-      if (updated.profit > 0) {
-        state.performance.wins++;
-      } else if (updated.profit < 0) {
-        state.performance.losses++;
-      }
-
-      state.performance.profit += updated.profit;
-      updated.resultRecorded = true;
-      state.finishedContracts.set(id, updated);
-    }
-
-    updatePerformance();
-    renderTradeHistory();
-
-    showMessage(
-      `Contract ${id} finished. Profit/Loss: ${money(updated.profit)}`
-    );
-  } else {
-    state.activeContracts.set(id, updated);
-  }
-
-  renderOpenContracts();
-}
-
-function updatePerformance() {
-  setText(el("wins"), state.performance.wins);
-  setText(el("losses"), state.performance.losses);
-  setText(el("totalProfit"), money(state.performance.profit));
-}
-
-function renderOpenContracts() {
-  if (!ui.openContracts) return;
-
-  ui.openContracts.replaceChildren();
-
-  if (!state.activeContracts.size) {
-    ui.openContracts.textContent = "No open contracts.";
-    return;
-  }
-
-  state.activeContracts.forEach(contract => {
-    const row = document.createElement("div");
-
-    row.style.cssText =
-      "padding:10px;margin:6px 0;background:#1e293b;border-radius:8px;";
-
-    row.textContent =
-      `Contract ${contract.contract_id} • ` +
-      `Status: ${contract.status || "open"} • ` +
-      `Profit/Loss: ${money(contract.profit || 0)}`;
-
-    ui.openContracts.appendChild(row);
-  });
-}
-
-function renderTradeHistory() {
-  if (!ui.tradeHistory) return;
-
-  ui.tradeHistory.replaceChildren();
-
-  if (!state.finishedContracts.size) {
-    ui.tradeHistory.textContent = "No finished trades yet.";
-    return;
-  }
-
-  Array.from(state.finishedContracts.values())
-    .reverse()
-    .forEach(contract => {
-      const row = document.createElement("div");
-
-      row.style.cssText =
-        "padding:10px;margin:6px 0;background:#1e293b;border-radius:8px;";
-
-      row.textContent =
-        `Contract ${contract.contract_id} • ` +
-        `${contract.status} • P/L: ${money(contract.profit)}`;
-
-      ui.tradeHistory.appendChild(row);
-    });
-}
-
-
-/* =========================================================
-   ACCOUNT TYPE
-========================================================= */
-
-async function changeAccountType() {
-  if (!ui.accountType || !state.loggedIn) return;
-
-  const selectedType = ui.accountType.value;
-
-  if (!["demo", "real"].includes(selectedType)) {
-    showMessage("Invalid account selection.");
-    return;
-  }
-
-  if (
-    selectedType === "real" &&
-    state.config?.real_trading_enabled !== true
-  ) {
-    showMessage("Real trading is disabled by the server.");
-    ui.accountType.value = "demo";
-    return;
-  }
-
-  if (
-    selectedType === "real" &&
-    !window.confirm(
-      "You selected a REAL account. Trades may use real money. Continue?"
-    )
-  ) {
-    ui.accountType.value =
-      state.account?.account_type || "demo";
-    return;
-  }
-
-  invalidateQuote("Changing account. Please wait.");
-
-  try {
-    const response = await fetch("/api/account-type", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      credentials: "same-origin",
-      body: JSON.stringify({
-        account_type: selectedType
-      })
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(
-        data.error || "Could not change the account type."
-      );
-       }
-     // Confirm the server-selected account instead of assuming
-    // that changing the dropdown changed the trading account.
-    const loaded = await loadAccount();
-
-    if (!loaded) {
-      throw new Error("Could not verify the selected account.");
-    }
-
-    closeSocket(state.tradingSocket);
-
-    state.tradingSocket = null;
-    state.tradingReady = false;
-
-    await connectTradingSocket();
-
-    showMessage(
-      `Account selection updated. Verify the account details before trading.`
-    );
-  } catch (error) {
-    console.error("Account type:", error);
-
-    showMessage(error.message);
-
-    if (state.account) {
-      ui.accountType.value =
-        state.account.account_type || "demo";
-    }
-  }
-}
-
-
-/* =========================================================
-   USER INTERACTIONS
+   SAFE UI INITIALIZATION
 ========================================================= */
 
 function bindEvents() {
-  if (ui.loginBtn) {
-    ui.loginBtn.addEventListener("click", () => {
-      window.location.href = "/login";
+  if ($("marketSelect")) {
+    $("marketSelect").addEventListener("change", event => {
+      selectMarket(event.target.value);
     });
   }
 
-  if (ui.logoutBtn) {
-    ui.logoutBtn.addEventListener("click", logout);
+  if ($("logoutBtn")) {
+    $("logoutBtn").addEventListener("click", logout);
   }
 
-  if (ui.marketSelect) {
-    ui.marketSelect.addEventListener("change", () => {
-      selectMarket(ui.marketSelect.value);
+  if ($("accountType")) {
+    $("accountType").addEventListener("change", event => {
+      if (event.target.value === "real") {
+        event.target.value = "demo";
+        show(
+          "accountTypeMessage",
+          "Real trading is disabled. Demo Account remains selected."
+        );
+      }
     });
   }
 
-  if (ui.accountType) {
-    ui.accountType.addEventListener(
-      "change",
-      changeAccountType
+  if ($("contractType")) {
+    $("contractType").addEventListener("change", event => {
+      const type = event.target.value;
+      const isDigit = type === "DIGITOVER" || type === "DIGITUNDER";
+
+      if ($("barrierContainer")) {
+        $("barrierContainer").style.display = isDigit ? "block" : "none";
+      }
+
+      show(
+        "tradeMessage",
+        "Trade execution is temporarily disabled while the market connection is tested."
+      );
+    });
+  }
+
+  if ($("riseBtn")) {
+    $("riseBtn").addEventListener("click", () => {
+      if ($("contractType")) $("contractType").value = "CALL";
+      show("directionStatus", "RISE selected. Buying remains disabled during testing.");
+    });
+  }
+
+  if ($("fallBtn")) {
+    $("fallBtn").addEventListener("click", () => {
+      if ($("contractType")) $("contractType").value = "PUT";
+      show("directionStatus", "FALL selected. Buying remains disabled during testing.");
+    });
+  }
+
+  // Safety: no order can be sent from this diagnostic version.
+  if ($("buyBtn")) {
+    $("buyBtn").disabled = true;
+    $("buyBtn").addEventListener("click", 
+                                 
+      () => {
+        setText(
+          "tradeMessage",
+          "Demo buying is temporarily disabled while market-data connection is tested."
+        );
+      }
     );
   }
 
-  if (ui.amount) {
-    ui.amount.addEventListener("change", () => {
-      state.amount = Number(ui.amount.value);
-      invalidateQuote("Stake changed. Request a new quote.");
-    });
-  }
+  // Keep the interface in diagnostic mode.
+  setText(
+    "directionStatus",
+    "Market-data diagnostic mode"
+  );
 
-  if (ui.duration) {
-    ui.duration.addEventListener("change", () => {
-      state.duration = Number(ui.duration.value);
-      invalidateQuote("Duration changed. Request a new quote.");
-    });
-  }
+  setText(
+    "quoteStatus",
+    "Quotes disabled during connection testing"
+  );
 
-  if (ui.contractType) {
-    ui.contractType.addEventListener("change", () => {
-      state.contractType = ui.contractType.value;
-      invalidateQuote("Contract changed. Request a new quote.");
-    });
-  }
-
-  if (ui.barrier) {
-    ui.barrier.addEventListener("change", () => {
-      state.barrier = Number(ui.barrier.value);
-      invalidateQuote("Barrier changed. Request a new quote.");
-    });
-  }
-
-  if (ui.riseBtn) {
-    ui.riseBtn.addEventListener("click", () => {
-      state.direction = "RISE";
-      state.contractType = "CALL";
-
-      if (ui.contractType) {
-        ui.contractType.value = "CALL";
-      }
-
-      invalidateQuote("RISE selected. Request a new quote.");
-      requestQuote();
-    });
-  }
-
-  if (ui.fallBtn) {
-    ui.fallBtn.addEventListener("click", () => {
-      state.direction = "FALL";
-      state.contractType = "PUT";
-
-      if (ui.contractType) {
-        ui.contractType.value = "PUT";
-      }
-
-      invalidateQuote("FALL selected. Request a new quote.");
-      requestQuote();
-    });
-  }
-
-  if (ui.buyBtn) {
-    ui.buyBtn.addEventListener("click", buyCurrentQuote);
-  }
-const quoteButton = el("quoteBtn");
-
-  if (quoteButton) {
-    quoteButton.addEventListener("click", requestQuote);
-  }
-
-  window.addEventListener("resize", drawChart);
+  setText(
+    "tradeMessage",
+    "No orders can be sent from this diagnostic version."
+  );
 }
 
-
-/* =========================================================
-   START APPLICATION
-========================================================= */
-
-async function startApp() {
-  cacheUI();
-  bindEvents();
-
-  updatePerformance();
-  renderOpenContracts();
-  renderTradeHistory();
-
-  setText(ui.connectionStatus, "Loading Tradedollars...");
-
-  const configLoaded = await loadConfig();
-
-  if (!configLoaded) {
-    setText(
-      ui.connectionStatus,
-      "Configuration unavailable. Refresh to retry."
-    );
-    return;
-  }
-
-  connectPublicSocket();
-
-  const loggedIn = await checkSession();
-
-  if (loggedIn) {
-    showLoggedIn();
-
-    setText(ui.connectionStatus, "Connecting to Deriv...");
-
-    const accountLoaded = await loadAccount();
-
-    if (accountLoaded) {
-      await connectTradingSocket();
-    }
-  } else {
-    showLoggedOut();
-  }
-
-  updateBuyButton();
-}
-
-
-/* =========================================================
-   APPLICATION ENTRY POINT
-========================================================= */
+/* START APPLICATION */
 
 if (document.readyState === "loading") {
   document.addEventListener("DOMContentLoaded", startApp);
@@ -1570,38 +844,4 @@ if (document.readyState === "loading") {
   startApp();
 }
 
-/* =========================================================
-   TRADEDOLLARS — STARTUP DIAGNOSTICS
-========================================================= */
 
-window.addEventListener("load", () => {
-  const requiredElements = [
-    "connectionStatus",
-    "loginBtn",
-    "logoutBtn",
-    "marketSelect",
-    "livePrice",
-    "amount",
-    "duration",
-    "riseBtn",
-    "fallBtn",
-    "buyBtn"
-  ];
-
-  const missingElements = requiredElements.filter(
-    id => !document.getElementById(id)
-  );
-
-  if (missingElements.length > 0) {
-    console.warn(
-      "Tradedollars: HTML elements not found:",
-      missingElements
-    );
-  } else {
-    console.info(
-      "Tradedollars: Required HTML elements found."
-    );
-  }
-});
-  
-                
