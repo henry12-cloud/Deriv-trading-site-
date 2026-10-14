@@ -218,10 +218,7 @@ function connectPublicSocket() {
     show("marketStatus", "Market connection not started");
     return;
   }
-
-  const url =
-    "wss://ws.derivws.com/websockets/v3?app_id=" +
-    encodeURIComponent(appId);
+const url = "wss://ws.derivws.com/websockets/v3";
 
   setConnection("Connecting to Deriv market data...");
   setPriceStatus("Opening market connection...");
