@@ -496,34 +496,60 @@ function subscribeToSelectedMarket() {
 }
 
 function handlePublicMessage(message) {
-  if (message.error) {
-    console.error("Deriv market API error:", message.error);
-
-    const errorMessage =
-      message.error.message || "Market data request failed";
-
-    setStatus("priceStatus", errorMessage, "#ef4444");
-
-    if (message.echo_req?.active_symbols) {
-      setStatus(
-        "marketStatus",
-        "Market list unavailable",
-        "#ef4444"
-      );
-    }
-
-    return;
-  }
-
-  if (Array.isArray(message.active_symbols)) {
-    processActiveSymbols(message.active_symbols);
-  }
-
-  if (message.msg_type === "tick" && message.tick) {
-    processTick(message.tick);
-  }
+if (!message || typeof message !== "object") {
+console.error("Invalid public API message:", message);
+return;
 }
 
+console.log("Public API response:", message);
+
+// Handle API errors without hiding the market-list problem.
+if (message.error) {
+const errorMessage =
+message.error.message || "Market data request failed";
+
+console.error(
+  "Deriv API error:",
+  message.error.code,
+  errorMessage,
+  "Request:",
+  message.echo_req
+);
+
+setStatus("priceStatus", errorMessage, "#ef4444");
+
+if (
+  message.req_id === 1001 ||
+  message.echo_req?.active_symbols
+) {
+  setStatus(
+    "marketStatus",
+    "Market list error: " + errorMessage,
+    "#ef4444"
+  );
+}
+
+return;
+
+}
+
+// Process the available-market response.
+if (Array.isArray(message.active_symbols)) {
+console.log(
+"Active symbols received:",
+message.active_symbols.length
+);
+
+processActiveSymbols(message.active_symbols);
+return;
+
+}
+
+// Keep processing live ticks as before.
+if (message.msg_type === "tick" && message.tick) {
+processTick(message.tick);
+}
+   }
 /* ---------------- MARKET SELECTOR ---------------- */
 
 function processActiveSymbols(symbols) {
