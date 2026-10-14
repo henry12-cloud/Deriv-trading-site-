@@ -414,14 +414,16 @@ send(socket, {
 }
 
 
+
 function handlePublicMessage(data) {
+  console.log("PUBLIC MARKET RESPONSE:", data);
+
   if (data.error || data.errors) {
     const message =
       data.error?.message ||
       data.errors?.[0]?.message ||
-      "Unknown market API error";
+      JSON.stringify(data.error || data.errors);
 
-    console.error("Market API error:", data);
     setText(ui.connectionStatus, "Market API error");
     setText(ui.priceMessage, message);
     return;
@@ -436,6 +438,11 @@ function handlePublicMessage(data) {
       item.underlying_symbol || item.symbol
     );
 
+    setText(
+      ui.priceMessage,
+      `Received ${state.markets.length} markets.`
+    );
+
     populateMarkets();
     return;
   }
@@ -446,7 +453,14 @@ function handlePublicMessage(data) {
 
   if (tick) {
     processTick(tick);
+    return;
   }
+
+  setText(
+    ui.priceMessage,
+    "Market response: " +
+      JSON.stringify(data).slice(0, 300)
+  );
 }
    
 
