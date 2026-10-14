@@ -89,38 +89,27 @@ async function loadConfig() {
   return state.config;
 }
 
+
 async function checkAccount() {
-  try {
-    const response = await fetch("/api/session", {
-      cache: "no-store",
-      credentials: "same-origin"
-    });
+  show("accountStatus", "Checking demo account...");
 
-    if (!response.ok) {
-      throw new Error("Session check failed.");
-    }
+  const account = await loadAccount();
 
-    const data = await response.json();
-    state.loggedIn = Boolean(data.authenticated);
+  state.loggedIn = Boolean(account);
 
-    if (!state.loggedIn) {
-      state.account = null;
-      show("accountStatus", "Log in first");
-      show("accountId", "--");
-      show("balance", "--");
-
-      if ($("loginBtn")) $("loginBtn").hidden = false;
-      if ($("logoutBtn")) $("logoutBtn").hidden = true;
-      return;
-    }
-
+  if (account) {
     if ($("loginBtn")) $("loginBtn").hidden = true;
     if ($("logoutBtn")) $("logoutBtn").hidden = false;
+    show("accountStatus", "Demo account connected ✓");
+  } else {
+    state.account = null;
 
-    await loadAccount();
-  } catch (error) {
-    console.error("Account session error:", error);
-    show("accountStatus", "Session check failed");
+    if ($("loginBtn")) $("loginBtn").hidden = false;
+    if ($("logoutBtn")) $("logoutBtn").hidden = true;
+
+    show("accountStatus", "Log in to connect your demo account");
+    show("accountId", "--");
+    show("balance", "--");
   }
 }
 
@@ -224,10 +213,8 @@ function connectPublicSocket() {
     return;
   }
 
-  // This is the numeric Deriv application ID, not the OAuth
-  // client ID. The server exposes it through /api/config.
-  
-const url = "wss://ws.derivws.com/websockets/v3";
+  const url =
+    "wss://api.derivws.com/trading/v1/options/ws/public";
 
   setConnection("Connecting to Deriv market data...");
   setPriceStatus("Opening market connection...");
@@ -237,8 +224,9 @@ const url = "wss://ws.derivws.com/websockets/v3";
   try {
     socket = new WebSocket(url);
   } catch (error) {
+    console.error("Could not create market socket:", error);
     setConnection("Could not create market connection");
-    setPriceStatus(error.message);
+    setPriceStatus(error.message || "Check your internet connection.");
     scheduleReconnect();
     return;
   }
@@ -253,13 +241,17 @@ const url = "wss://ws.derivws.com/websockets/v3";
     state.reconnectDelay = 3000;
 
     setConnection("Connected; requesting markets...");
-    setPriceStatus("Waiting for market list...");
+    setPriceStatus("Requesting active markets...");
 
-    send({
-  ticks: "1HZ100V",
-  subscribe: 1,
-  req_id: ++state.requestId
-});
+    const sent = send({
+      active_symbols: "brief",
+      req_id: ++state.requestId
+    });
+
+    if (!sent) {
+      setPriceStatus("Could not request the market list.");
+    }
+  };
 
   socket.onmessage = event => {
     if (state.socket !== socket) return;
@@ -270,7 +262,7 @@ const url = "wss://ws.derivws.com/websockets/v3";
       data = JSON.parse(event.data);
     } catch (error) {
       console.error("Invalid market response:", event.data);
-      setPriceStatus("Could not read market response.");
+      setPriceStatus("Could not read the market response.");
       return;
     }
 
@@ -283,9 +275,7 @@ const url = "wss://ws.derivws.com/websockets/v3";
 
     console.error("Market socket error:", error);
     setConnection("Market connection error");
-    setPriceStatus(
-      "Check the App ID and internet connection."
-    );
+    setPriceStatus("Check the connection and browser console.");
   };
 
   socket.onclose = event => {
@@ -299,126 +289,6 @@ const url = "wss://ws.derivws.com/websockets/v3";
 
     scheduleReconnect();
   };
-}
-
-function scheduleReconnect() {
-  clearTimeout(state.reconnectTimer);
-
-  state.reconnectTimer = setTimeout(
-    connectPublicSocket,
-    state.reconnectDelay
-  );
-
-  state.reconnectDelay = Math.min(
-    state.reconnectDelay * 2,
-    30000
-  );
-}
-
-function handleMarketMessage(data) {
-  if (data.error) {
-    const message =
-      data.error.message || data.error.code || "Unknown API error";
-
-    console.error("Deriv API error:", data.error);
-    setConnection("Deriv rejected the request");
-    setPriceStatus(message);
-    show("marketStatus", message);
-    return;
-  }
-
-  if (data.msg_type === "active_symbols" &&
-      Array.isArray(data.active_symbols)) {
-    state.markets = data.active_symbols.filter(
-      item => item && item.symbol
-    );
-
-    show("marketStatus", `${state.markets.length} markets received`);
-
-    if (!state.markets.length) {
-      setPriceStatus("Deriv returned no active markets.");
-      return;
-    }
-
-    populateMarkets();
-    return;
-  }
-
-  if (data.msg_type === "tick" && data.tick) {
-    processTick(data.tick);
-    return;
-  }
-
-  if (data.msg_type === "forget" || data.msg_type === "ping") {
-    return;
-  }
-
-  console.log("Other Deriv response:", data);
-}
-
-function populateMarkets() {
-  const select = $("marketSelect");
-  if (!select) return;
-
-  select.replaceChildren();
-
-  for (const market of state.markets) {
-    const option = document.createElement("option");
-    option.value = market.symbol;
-    option.textContent = market.display_name || market.symbol;
-    select.appendChild(option);
-  }
-
-  show("marketStatus", `${state.markets.length} markets loaded`);
-
-  const preferred = state.markets.find(
-    market => market.symbol === "1HZ100V"
-  );
-
-  const symbol = preferred
-    ? preferred.symbol
-    : state.markets[0].symbol;
-
-  select.value = symbol;
-  selectMarket(symbol);
-}
-
-function selectMarket(symbol) {
-  if (!symbol || !state.connected) return;
-
-  if (state.symbol) {
-    send({
-      forget: "ticks",
-      symbol: state.symbol,
-      req_id: ++state.requestId
-    });
-  }
-
-  state.symbol = symbol;
-  state.totalTicks = 0;
-  state.prices = [];
-  state.digits = [];
-
-  const market = state.markets.find(
-    item => item.symbol === symbol
-  );
-
-  show("selectedMarket", market?.display_name || symbol);
-  show("livePrice", "--");
-  show("liveDigit", "--");
-
-  updateDigitHistory();
-  updateDigitsAnalysis();
-  updateMarketAnalysis();
-  drawChart();
-
-  setPriceStatus(`Subscribing to ${symbol}...`);
-
-  send({
-    ticks: symbol,
-    subscribe: 1,
-    req_id: ++state.requestId
-  });
 }
 
 /* =========================================================
