@@ -417,10 +417,17 @@ send(socket, {
   };
 }
 
+
 function handlePublicMessage(data) {
-  if (data.error) {
-    console.error("Market API error:", data.error.message);
-    setText(ui.priceMessage, data.error.message);
+  if (data.error || data.errors) {
+    const message =
+      data.error?.message ||
+      data.errors?.[0]?.message ||
+      "Unknown market API error";
+
+    console.error("Market API error:", data);
+    setText(ui.connectionStatus, "Market API error");
+    setText(ui.priceMessage, message);
     return;
   }
 
@@ -445,6 +452,7 @@ function handlePublicMessage(data) {
     processTick(tick);
   }
 }
+   
 
 function populateMarkets() {
   if (!ui.marketSelect) return;
