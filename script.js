@@ -442,13 +442,38 @@ if (
     count > 0 ? "#22c55e" : "#f59e0b"
   );
 }
-    if (message.msg_type === "active_symbols") {
-      console.log(
-        "Market-list response:",
-        message.active_symbols?.length ?? 0,
-        "markets"
+
+   if (
+  message.msg_type === "active_symbols" ||
+  Array.isArray(message.active_symbols)
+) {
+  const symbols = message.active_symbols;
+
+  console.log("MARKET LIST RESPONSE:", message);
+
+  if (Array.isArray(symbols)) {
+    console.log("MARKETS RECEIVED:", symbols.length);
+
+    if (typeof processActiveSymbols === "function") {
+      processActiveSymbols(symbols);
+    } else {
+      console.error("processActiveSymbols() is missing.");
+      setStatus(
+        "marketStatus",
+        "Market processor function missing",
+        "#ef4444"
       );
     }
+  } else {
+    console.error("Market response has no active_symbols array:", message);
+
+    setStatus(
+      "marketStatus",
+      "Market response received, but list is missing",
+      "#ef4444"
+    );
+  }
+  }
 
     if (message.msg_type === "tick") {
       console.log("Live tick received:", message.tick?.quote);
