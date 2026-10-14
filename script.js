@@ -812,14 +812,7 @@ async function startApp() {
 
     const appId = String(state.config?.app_id || "").trim();
 
-    if (!/^\d+$/.test(appId)) {
-      setConnection("Deriv App ID missing or invalid");
-      setPriceStatus(
-        "Check Render Environment: DERIV_APP_ID must be your numeric app ID."
-      );
-      show("marketStatus", "Market connection not started");
-      return;
-    }
+
 
     
     connectPublicSocket();
