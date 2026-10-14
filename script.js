@@ -1,711 +1,1098 @@
 
 /* =========================================================
-   TRADEDOLLARS — MARKET CONNECTION REPAIR
-   Live markets, continuous ticks, chart and analysis.
-   Real-money trading and order execution are disabled.
-========================================================= */
+   TRADEDOLLARS — SCRIPT.JS
+   Public market data + demo account status + analysis
+   Real-money trading remains disabled.
+   ========================================================= */
 
 "use strict";
 
+/* ---------------- CONFIGURATION ---------------- */
+
+const APP_ID = "34qPaViEQZZw84Mc5thoO";
+
+const PUBLIC_WS_URL =
+  `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`;
+
+const API_BASE = "";
+
+const DEFAULT_SYMBOL = "1HZ100V";
+
+const MAX_PRICE_POINTS = 100;
+const MAX_DIGIT_HISTORY = 20;
+const ANALYSIS_WINDOW = 50;
+
+/* ---------------- APPLICATION STATE ---------------- */
+
 const state = {
   config: null,
-  loggedIn: false,
   account: null,
-  socket: null,
-  connected: false,
-  markets: [],
-  symbol: "",
+  authenticated: false,
+
+  publicSocket: null,
+  publicReconnectTimer: null,
+  reconnectDelay: 2000,
+
+  requestId: 0,
+  activeSymbols: [],
+  selectedSymbol: DEFAULT_SYMBOL,
+
+  priceHistory: [],
+  digitHistory: [],
   totalTicks: 0,
-  prices: [],
-  digits: [],
-  requestId: 1000,
-  reconnectTimer: null,
-  reconnectDelay: 3000
+
+  lastPrice: null,
+  lastDigit: null,
+  pipSize: 2,
+
+  socketReady: false,
+  loadingAccount: false,
+  loadingMarkets: false
 };
 
-const $ = id => document.getElementById(id);
+/* ---------------- DOM HELPERS ---------------- */
 
-// Compatibility helper used by the interface.
+function byId(id) {
+  return document.getElementById(id);
+}
+
 function setText(id, value) {
-  const element = $(id);
-  if (element) element.textContent = String(value ?? "--");
+  const element = byId(id);
+  if (element) element.textContent = String(value);
 }
 
-function show(id, value) {
-  setText(id, value);
+function setStatus(id, message, color) {
+  const element = byId(id);
+  if (!element) return;
+
+  element.textContent = message;
+
+  if (color) {
+    element.style.color = color;
+  }
 }
 
-function money(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number.toFixed(2) : "--";
+function formatMoney(value, currency = "USD") {
+  const amount = Number(value);
+
+  if (!Number.isFinite(amount)) {
+    return "--";
+  }
+
+  return `${currency} ${amount.toFixed(2)}`;
 }
 
-function setConnection(message) {
-  show("connectionStatus", message);
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => {
+    const entities = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    };
+
+    return entities[character];
+  });
 }
 
-function setPriceStatus(message) {
-  show("priceStatus", message);
+/* ---------------- CONFIGURATION ---------------- */
+
+async function loadConfig() {
+  try {
+    const response = await fetch(`${API_BASE}/api/config`, {
+      credentials: "same-origin",
+      cache: "no-store"
+    });
+
+    if (!response.ok) {
+      throw new Error(`Configuration request failed (${response.status})`);
+    }
+
+    state.config = await response.json();
+
+    // This application must not enable real-money trading.
+    if (byId("accountType")) {
+      const realOption = byId("accountType").querySelector(
+        'option[value="real"]'
+      );
+
+      if (realOption) realOption.disabled = true;
+
+      byId("accountType").value = "demo";
+    }
+
+    setStatus(
+      "connectionStatus",
+      "Configuration loaded",
+      "#22c55e"
+    );
+
+    return true;
+  } catch (error) {
+    console.error("Configuration error:", error);
+
+    setStatus(
+      "connectionStatus",
+      "Configuration unavailable",
+      "#ef4444"
+    );
+
+    return false;
+  }
 }
 
-function send(payload) {
-  if (
-    !state.socket ||
-    state.socket.readyState !== WebSocket.OPEN
-  ) {
+/* ---------------- LOGIN AND ACCOUNT ---------------- */
+
+function updateLoginButtons() {
+  const loginButton = byId("loginBtn");
+  const logoutButton = byId("logoutBtn");
+
+  if (loginButton) {
+    loginButton.style.display = state.authenticated ? "none" : "";
+  }
+
+  if (logoutButton) {
+    logoutButton.style.display = state.authenticated ? "" : "none";
+  }
+}
+
+function renderAccount(account) {
+  state.account = account || null;
+
+  if (!account) {
+    setText("accountId", "--");
+    setText("balance", "--");
+    setText("accountTypeMessage", "Connect a Deriv demo account.");
+    setStatus("accountStatus", "Not connected", "#f59e0b");
+    return;
+  }
+
+  setText("accountId", account.id || "--");
+
+  setText(
+    "balance",
+    formatMoney(account.balance, account.currency || "USD")
+  );
+
+  setText(
+    "accountTypeMessage",
+    "Demo account selected. Real-money trading is disabled."
+  );
+
+  setStatus(
+    "accountStatus",
+    "Demo account connected",
+    "#22c55e"
+  );
+
+  if (byId("accountType")) {
+    byId("accountType").value = "demo";
+  }
+}
+
+async function checkAccount() {
+  if (state.loadingAccount) return;
+
+  state.loadingAccount = true;
+
+  setStatus(
+    "accountStatus",
+    "Checking demo account...",
+    "#f59e0b"
+  );
+
+  try {
+    const response = await fetch(`${API_BASE}/api/account`, {
+      credentials: "same-origin",
+      cache: "no-store"
+    });
+
+    const result = await response.json().catch(() => ({}));
+
+    if (response.status === 401 || response.status === 403) {
+      state.authenticated = false;
+      renderAccount(null);
+      updateLoginButtons();
+
+      setStatus(
+        "accountStatus",
+        "Please log in with Deriv",
+        "#f59e0b"
+      );
+
+      return;
+    }
+
+    if (!response.ok || !result.connected || !result.account) {
+      throw new Error(
+        result.error || result.message || "Demo account not available"
+      );
+    }
+
+    state.authenticated = true;
+    renderAccount(result.account);
+    updateLoginButtons();
+
+    // Refresh the session display after account selection.
+    fetch(`${API_BASE}/api/session`, {
+      credentials: "same-origin",
+      cache: "no-store"
+    }).catch(() => {});
+  } catch (error) {
+    console.error("Account check error:", error);
+
+    setStatus(
+      "accountStatus",
+      "Unable to load account. Try refreshing.",
+      "#ef4444"
+    );
+  } finally {
+    state.loadingAccount = false;
+  }
+}
+
+function loginWithDeriv() {
+  window.location.href = `${API_BASE}/login`;
+}
+
+async function logoutFromDeriv() {
+  try {
+    await fetch(`${API_BASE}/logout`, {
+      method: "POST",
+      credentials: "same-origin"
+    });
+  } catch (error) {
+    console.warn("Logout request:", error);
+  }
+
+  // Support servers where logout is exposed as a GET route.
+  try {
+    await fetch(`${API_BASE}/logout`, {
+      method: "GET",
+      credentials: "same-origin"
+    });
+  } catch (_) {}
+
+  state.authenticated = false;
+  state.account = null;
+
+  renderAccount(null);
+  updateLoginButtons();
+
+  setStatus(
+    "accountStatus",
+    "Logged out",
+    "#f59e0b"
+  );
+
+  checkAccount();
+}
+
+/* ---------------- PUBLIC MARKET SOCKET ---------------- */
+
+function closePublicSocket() {
+  if (state.publicReconnectTimer) {
+    clearTimeout(state.publicReconnectTimer);
+    state.publicReconnectTimer = null;
+  }
+
+  const socket = state.publicSocket;
+  state.publicSocket = null;
+  state.socketReady = false;
+
+  if (socket) {
+    try {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      socket.close();
+    } catch (_) {}
+  }
+}
+
+function sendPublicMessage(message) {
+  const socket = state.publicSocket;
+
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
     return false;
   }
 
-  state.socket.send(JSON.stringify(payload));
+  socket.send(JSON.stringify({
+    ...message,
+    req_id: ++state.requestId
+  }));
+
   return true;
 }
 
-/* =========================================================
-   SERVER CONFIGURATION AND ACCOUNT
-========================================================= */
-
-async function loadConfig() {
-  const response = await fetch("/api/config", {
-    cache: "no-store",
-    credentials: "same-origin"
-  });
-
-  if (!response.ok) {
-    throw new Error("Could not load server configuration.");
-  }
-
-  state.config = await response.json();
-
-  const accountType = $("accountType");
-
-  if (accountType) {
-    [...accountType.options].forEach(option => {
-      if (option.value === "real") option.disabled = true;
-    });
-
-    accountType.value = "demo";
-  }
-
-  return state.config;
-}
-
-
-async function checkAccount() {
-  show("accountStatus", "Checking demo account...");
-
-  const account = await loadAccount();
-
-  state.loggedIn = Boolean(account);
-
-  if (account) {
-    if ($("loginBtn")) $("loginBtn").hidden = true;
-    if ($("logoutBtn")) $("logoutBtn").hidden = false;
-    show("accountStatus", "Demo account connected ✓");
-  } else {
-    state.account = null;
-
-    if ($("loginBtn")) $("loginBtn").hidden = false;
-    if ($("logoutBtn")) $("logoutBtn").hidden = true;
-
-    show("accountStatus", "Log in to connect your demo account");
-    show("accountId", "--");
-    show("balance", "--");
-  }
-}
-
-async function loadAccount() {
-try {
-show("accountStatus", "Checking demo account...");
-show("accountId", "--");
-show("balance", "--");
-
-const response = await fetch("/api/account", {
-  method: "GET",
-  cache: "no-store",
-  credentials: "same-origin",
-  headers: {
-    "Accept": "application/json"
-  }
-});
-
-const data = await response.json();
-
-if (!response.ok || data.connected === false || !data.account) {
-  throw new Error(
-    data.error || "Demo account unavailable. Please log in again."
-  );
-}
-
-const account = data.account;
-
-const accountType = String(
-  account.account_type ||
-  account.accountType ||
-  ""
-).toLowerCase();
-
-if (accountType !== "demo") {
-  throw new Error(
-    "Account verification failed. Only demo accounts are permitted."
-  );
-}
-
-if (
-  account.balance === undefined ||
-  account.balance === null ||
-  !Number.isFinite(Number(account.balance))
-) {
-  throw new Error("Demo account balance is unavailable.");
-}
-
-state.account = account;
-
-show("accountStatus", "Demo account connected ✓");
-show("accountId", account.account_id || account.id || "--");
-show(
-  "balance",
-  `${money(Number(account.balance))} ${account.currency || "USD"}`
-);
-show("accountTypeMessage", "Demo Account selected");
-
-if ($("loginBtn")) $("loginBtn").hidden = true;
-if ($("logoutBtn")) $("logoutBtn").hidden = false;
-
-console.log("Verified demo account loaded:", {
-  account_id: account.account_id || account.id,
-  account_type: accountType,
-  currency: account.currency
-});
-
-return account;
-
-} catch (error) {
-state.account = null;
-
-console.error("Demo account error:", error);
-
-show("accountStatus", "Demo account unavailable");
-show("accountId", "--");
-show("balance", "--");
-show("accountTypeMessage", error.message);
-
-if ($("loginBtn")) $("loginBtn").hidden = false;
-if ($("logoutBtn")) $("logoutBtn").hidden = true;
-
-return null;
-
-}
-}
-/* =========================================================
-   PUBLIC MARKET DATA
-========================================================= */
-
 function connectPublicSocket() {
-  clearTimeout(state.reconnectTimer);
-
   if (
-    state.socket &&
+    state.publicSocket &&
     (
-      state.socket.readyState === WebSocket.OPEN ||
-      state.socket.readyState === WebSocket.CONNECTING
+      state.publicSocket.readyState === WebSocket.OPEN ||
+      state.publicSocket.readyState === WebSocket.CONNECTING
     )
   ) {
     return;
   }
 
-  const url =
-    "wss://api.derivws.com/trading/v1/options/ws/public";
-
-  setConnection("Connecting to Deriv market data...");
-  setPriceStatus("Opening market connection...");
+  setStatus(
+    "priceStatus",
+    "Connecting to market data...",
+    "#f59e0b"
+  );
 
   let socket;
 
   try {
-    socket = new WebSocket(url);
+    socket = new WebSocket(PUBLIC_WS_URL);
   } catch (error) {
-    console.error("Could not create market socket:", error);
-    setConnection("Could not create market connection");
-    setPriceStatus(error.message || "Check your internet connection.");
-    scheduleReconnect();
+    console.error("WebSocket creation error:", error);
+    schedulePublicReconnect();
     return;
   }
 
-  state.socket = socket;
-  state.connected = false;
+  state.publicSocket = socket;
 
   socket.onopen = () => {
-    if (state.socket !== socket) return;
+    if (state.publicSocket !== socket) return;
 
-    state.connected = true;
-    state.reconnectDelay = 3000;
+    state.socketReady = true;
+    state.reconnectDelay = 2000;
 
-    setConnection("Connected; requesting markets...");
-    setPriceStatus("Requesting active markets...");
+    setStatus(
+      "priceStatus",
+      "Market connection established",
+      "#22c55e"
+    );
 
-    const sent = send({
+    setStatus(
+      "marketStatus",
+      "Loading markets...",
+      "#f59e0b"
+    );
+
+    sendPublicMessage({
       active_symbols: "brief",
-      req_id: ++state.requestId
+      product_type: "basic"
     });
 
-    if (!sent) {
-      setPriceStatus("Could not request the market list.");
-    }
+    subscribeToSelectedMarket();
   };
 
   socket.onmessage = event => {
-    if (state.socket !== socket) return;
+    if (state.publicSocket !== socket) return;
 
-    let data;
+    let message;
 
     try {
-      data = JSON.parse(event.data);
+      message = JSON.parse(event.data);
     } catch (error) {
-      console.error("Invalid market response:", event.data);
-      setPriceStatus("Could not read the market response.");
+      console.warn("Invalid market message received.");
       return;
     }
 
-    console.log("Tradedollars market response:", data);
-    handleMarketMessage(data);
+    handlePublicMessage(message);
   };
 
   socket.onerror = error => {
-    if (state.socket !== socket) return;
+    console.error("Public market socket error:", error);
 
-    console.error("Market socket error:", error);
-    setConnection("Market connection error");
-    setPriceStatus("Check the connection and browser console.");
+    setStatus(
+      "priceStatus",
+      "Market connection error",
+      "#ef4444"
+    );
   };
 
-  socket.onclose = event => {
-    if (state.socket !== socket) return;
+  socket.onclose = () => {
+    if (state.publicSocket !== socket) return;
 
-    state.connected = false;
-    setConnection(`Market disconnected (code ${event.code})`);
-    setPriceStatus(
-      event.reason || "Reconnecting to market data..."
+    state.publicSocket = null;
+    state.socketReady = false;
+
+    setStatus(
+      "priceStatus",
+      "Market disconnected. Reconnecting...",
+      "#f59e0b"
     );
 
-    scheduleReconnect();
+    schedulePublicReconnect();
   };
 }
 
-/* =========================================================
-   CONTINUOUS TICK PROCESSING
-========================================================= */
+function schedulePublicReconnect() {
+  if (state.publicReconnectTimer) return;
+
+  const delay = state.reconnectDelay;
+
+  state.reconnectDelay = Math.min(
+    state.reconnectDelay * 2,
+    30000
+  );
+
+  state.publicReconnectTimer = setTimeout(() => {
+    state.publicReconnectTimer = null;
+    connectPublicSocket();
+  }, delay);
+}
+
+function subscribeToSelectedMarket() {
+  if (!state.socketReady) return;
+
+  sendPublicMessage({
+    forget_all: "ticks"
+  });
+
+  sendPublicMessage({
+    ticks: state.selectedSymbol,
+    subscribe: 1
+  });
+
+  setStatus(
+    "priceStatus",
+    `Waiting for ${state.selectedSymbol} ticks...`,
+    "#f59e0b"
+  );
+}
+
+function handlePublicMessage(message) {
+  if (message.error) {
+    console.error("Deriv market API error:", message.error);
+
+    const errorMessage =
+      message.error.message || "Market data request failed";
+
+    setStatus("priceStatus", errorMessage, "#ef4444");
+
+    if (message.echo_req?.active_symbols) {
+      setStatus(
+        "marketStatus",
+        "Market list unavailable",
+        "#ef4444"
+      );
+    }
+
+    return;
+  }
+
+  if (Array.isArray(message.active_symbols)) {
+    processActiveSymbols(message.active_symbols);
+  }
+
+  if (message.msg_type === "tick" && message.tick) {
+    processTick(message.tick);
+  }
+}
+
+/* ---------------- MARKET SELECTOR ---------------- */
+
+function processActiveSymbols(symbols) {
+  state.activeSymbols = symbols
+    .filter(item => item && item.symbol && item.display_name)
+    .sort((a, b) =>
+      a.display_name.localeCompare(b.display_name)
+    );
+
+  const select = byId("marketSelect");
+
+  if (!select) return;
+
+  const previousValue = state.selectedSymbol;
+
+  select.innerHTML = state.activeSymbols
+    .map(item => {
+      return `<option value="${escapeHtml(item.symbol)}">${
+        escapeHtml(item.display_name)
+      }</option>`;
+    })
+    .join("");
+
+  const hasPrevious = state.activeSymbols.some(
+    item => item.symbol === previousValue
+  );
+
+  const hasDefault = state.activeSymbols.some(
+    item => item.symbol === DEFAULT_SYMBOL
+  );
+
+  if (hasPrevious) {
+    state.selectedSymbol = previousValue;
+  } else if (hasDefault) {
+    state.selectedSymbol = DEFAULT_SYMBOL;
+  } else if (state.activeSymbols.length > 0) {
+    state.selectedSymbol = state.activeSymbols[0].symbol;
+  }
+
+  select.value = state.selectedSymbol;
+
+  const market = state.activeSymbols.find(
+    item => item.symbol === state.selectedSymbol
+  );
+
+  setText(
+    "selectedMarket",
+    market ? market.display_name : state.selectedSymbol
+  );
+
+  setStatus(
+    "marketStatus",
+    `${state.activeSymbols.length} markets loaded`,
+    "#22c55e"
+  );
+
+  subscribeToSelectedMarket();
+}
+
+function handleMarketChange() {
+  const select = byId("marketSelect");
+
+  if (!select || !select.value) return;
+
+  state.selectedSymbol = select.value;
+
+  state.priceHistory = [];
+  state.digitHistory = [];
+  state.totalTicks = 0;
+  state.lastPrice = null;
+  state.lastDigit = null;
+
+  const market = state.activeSymbols.find(
+    item => item.symbol === state.selectedSymbol
+  );
+
+  setText(
+    "selectedMarket",
+    market ? market.display_name : state.selectedSymbol
+  );
+
+  setText("livePrice", "--");
+  setText("liveDigit", "--");
+
+  renderDigitHistory();
+  renderChart();
+  renderMarketAnalysis();
+  renderDigitAnalysis();
+
+  subscribeToSelectedMarket();
+}
+
+/* ---------------- TICK PROCESSING ---------------- */
+
+function getLastDigit(price, pipSize) {
+  const decimals = Number.isInteger(Number(pipSize))
+    ? Math.max(0, Math.min(10, Number(pipSize)))
+    : 2;
+
+  const formatted = Number(price).toFixed(decimals);
+  const digits = formatted.replace(/\D/g, "");
+
+  return digits.length
+    ? Number(digits[digits.length - 1])
+    : null;
+}
 
 function processTick(tick) {
-  if (
-    tick.symbol &&
-    state.symbol &&
-    tick.symbol !== state.symbol
-  ) {
+  if (tick.symbol && tick.symbol !== state.selectedSymbol) {
     return;
   }
 
   const price = Number(tick.quote);
+
   if (!Number.isFinite(price)) return;
 
-  state.totalTicks++;
-  state.prices.push(price);
+  state.pipSize = Number.isInteger(Number(tick.pip_size))
+    ? Number(tick.pip_size)
+    : state.pipSize;
 
-  if (state.prices.length > 50) {
-    state.prices.shift();
+  state.lastPrice = price;
+  state.lastDigit = getLastDigit(price, state.pipSize);
+  state.totalTicks += 1;
+
+  state.priceHistory.push(price);
+
+  if (state.priceHistory.length > MAX_PRICE_POINTS) {
+    state.priceHistory.shift();
   }
 
-  const decimals = Math.max(
-    0,
-    Math.min(8, Number(tick.pip_size ?? 2))
-  );
+  if (state.lastDigit !== null) {
+    state.digitHistory.push(state.lastDigit);
 
-  const formatted = price.toFixed(decimals);
-  const digit = Number(formatted.slice(-1));
-
-  state.digits.push(digit);
-
-  if (state.digits.length > 2000) {
-    state.digits.shift();
+    if (state.digitHistory.length > ANALYSIS_WINDOW) {
+      state.digitHistory.shift();
+    }
   }
 
-  show("livePrice", formatted);
-  show("liveDigit", digit);
+  const formattedPrice = price.toFixed(state.pipSize);
 
-  setConnection("Live market data connected");
-  setPriceStatus(
-    `Live • ${state.totalTicks.toLocaleString()} ticks received`
+  setText("livePrice", formattedPrice);
+  setText("liveDigit", state.lastDigit ?? "--");
+
+  setStatus(
+    "priceStatus",
+    `Live • ${state.totalTicks} ticks collected`,
+    "#22c55e"
   );
 
-  updateDigitHistory();
-  updateDigitsAnalysis();
-  updateMarketAnalysis();
-  drawChart();
+  renderDigitHistory();
+  renderChart();
+  renderMarketAnalysis();
+  renderDigitAnalysis();
 }
 
-function updateDigitHistory() {
-  const container = $("liveDigitHistory");
+/* ---------------- DIGIT HISTORY ---------------- */
+
+function renderDigitHistory() {
+  const container = byId("liveDigitHistory");
+
   if (!container) return;
 
-  container.replaceChildren();
+  const digits = state.digitHistory.slice(-MAX_DIGIT_HISTORY);
 
-  if (!state.digits.length) {
-    const span = document.createElement("span");
-    span.textContent = "Waiting for ticks...";
-    container.appendChild(span);
+  container.innerHTML = digits.map((digit, index) => {
+    const isLatest = index === digits.length - 1;
+
+    return `
+      <span style="
+        display:inline-flex;
+        align-items:center;
+        justify-content:center;
+        min-width:28px;
+        height:30px;
+        margin:3px;
+        border-radius:6px;
+        background:${isLatest ? "#2563eb" : "#1e293b"};
+        color:#ffffff;
+        font-weight:700;
+      ">${digit}</span>
+    `;
+  }).join("");
+}
+
+/* ---------------- CHART ---------------- */
+
+function renderChart() {
+  const canvas = byId("chart");
+
+  if (!canvas) return;
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const width = canvas.clientWidth || 600;
+  const height = 240;
+  const pixelRatio = window.devicePixelRatio || 1;
+
+  canvas.width = Math.floor(width * pixelRatio);
+  canvas.height = Math.floor(height * pixelRatio);
+  canvas.style.height = `${height}px`;
+
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.clearRect(0, 0, width, height);
+
+  context.fillStyle = "#0f172a";
+  context.fillRect(0, 0, width, height);
+
+  context.strokeStyle = "#263449";
+  context.lineWidth = 1;
+
+  for (let row = 1; row < 5; row++) {
+    const y = (height / 5) * row;
+
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(width, y);
+    context.stroke();
+  }
+
+  const prices = state.priceHistory;
+
+  if (prices.length < 2) {
+    context.fillStyle = "#94a3b8";
+    context.font = "14px Arial";
+    context.textAlign = "center";
+    context.fillText(
+      "Waiting for market prices...",
+      width / 2,
+      height / 2
+    );
     return;
   }
 
-  state.digits.slice(-12).forEach(digit => {
-    const span = document.createElement("span");
-    span.textContent = digit;
-    span.style.cssText =
-      "background:#334155;padding:7px 10px;border-radius:7px;";
-    container.appendChild(span);
+  const minimum = Math.min(...prices);
+  const maximum = Math.max(...prices);
+  const range = maximum - minimum || 1;
+  const padding = 12;
+
+  context.beginPath();
+
+  prices.forEach((price, index) => {
+    const x = padding +
+      (index / (prices.length - 1)) * (width - padding * 2);
+
+    const y = height - padding -
+      ((price - minimum) / range) * (height - padding * 2);
+
+    if (index === 0) {
+      context.moveTo(x, y);
+    } else {
+      context.lineTo(x, y);
+    }
   });
+
+  context.strokeStyle =
+    prices[prices.length - 1] >= prices[0]
+      ? "#22c55e"
+      : "#f87171";
+
+  context.lineWidth = 2;
+  context.stroke();
 }
 
-/* =========================================================
-   DIGIT STATISTICS — DESCRIPTIVE, NOT PREDICTIVE
-========================================================= */
+/* ---------------- RISE/FALL ANALYSIS ---------------- */
 
-function updateDigitsAnalysis() {
-  const digits = state.digits;
-  const total = digits.length;
+function average(values) {
+  if (!values.length) return 0;
 
-  show("digitsSample", `${total.toLocaleString()} ticks`);
+  return values.reduce((sum, value) => sum + value, 0) /
+    values.length;
+}
 
-  if (!total) {
-    [
-      "mostFrequentDigit",
-      "leastFrequentDigit",
-      "evenPercentage",
-      "oddPercentage",
-      "overFivePercentage",
-      "underFivePercentage",
-      "repeatedDigit"
-    ].forEach(id => show(id, "--"));
+function renderMarketAnalysis() {
+  const prices = state.priceHistory;
 
-    show("digitBias", "WAIT");
-    show("digitConfidence", "LOW");
-    show("digitAnalysisMessage", "Waiting for live tick data.");
+  if (prices.length < 20) {
+    setText("analysisTrend", "COLLECTING DATA");
+    setText("analysisMomentum", "Not enough data");
+    setText("analysisSupport", "--");
+    setText("analysisResistance", "--");
+    setText("analysisConfidence", "LOW");
+    setText("analysisSignal", "WAIT");
+
+    setText(
+      "analysisReason",
+      `Collecting ticks: ${prices.length}/20. No trade signal yet.`
+    );
+
+    return;
+  }
+
+  const shortRecent = prices.slice(-5);
+  const shortPrevious = prices.slice(-10, -5);
+  const mediumRecent = prices.slice(-10);
+  const mediumPrevious = prices.slice(-20, -10);
+
+  const shortChange =
+    average(shortRecent) - average(shortPrevious);
+
+  const mediumChange =
+    average(mediumRecent) - average(mediumPrevious);
+
+  const support = Math.min(...prices.slice(-20));
+  const resistance = Math.max(...prices.slice(-20));
+  const latest = prices[prices.length - 1];
+
+  let trend = "SIDEWAYS";
+
+  if (shortChange > 0 && mediumChange > 0) {
+    trend = "BULLISH";
+  } else if (shortChange < 0 && mediumChange < 0) {
+    trend = "BEARISH";
+  }
+
+  const momentum = Math.abs(shortChange);
+
+  const nearResistance =
+    latest >= resistance - (resistance - support) * 0.15;
+
+  const nearSupport =
+    latest <= support + (resistance - support) * 0.15;
+
+  let signal = "WAIT";
+  let confidence = "LOW";
+  let reason =
+    "Waiting for clearer momentum and confirmation.";
+
+  if (
+    trend === "BULLISH" &&
+    !nearResistance &&
+    shortChange > 0
+  ) {
+    signal = "RISE WATCH";
+    confidence = mediumChange > 0 ? "MEDIUM" : "LOW";
+    reason =
+      "Recent movement is upward. This is a watch condition, not a prediction.";
+  } else if (
+    trend === "BEARISH" &&
+    !nearSupport &&
+    shortChange < 0
+  ) {
+    signal = "FALL WATCH";
+    confidence = mediumChange < 0 ? "MEDIUM" : "LOW";
+    reason =
+      "Recent movement is downward. This is a watch condition, not a prediction.";
+  }
+
+  if (nearResistance && trend === "BULLISH") {
+    signal = "WAIT";
+    reason =
+      "Price is near recent resistance. Wait for confirmation.";
+  }
+
+  if (nearSupport && trend === "BEARISH") {
+    signal = "WAIT";
+    reason =
+      "Price is near recent support. Wait for confirmation.";
+  }
+
+  setText("analysisTrend", trend);
+
+  setText(
+    "analysisMomentum",
+    momentum.toFixed(state.pipSize)
+  );
+
+  setText(
+    "analysisSupport",
+    support.toFixed(state.pipSize)
+  );
+
+  setText(
+    "analysisResistance",
+    resistance.toFixed(state.pipSize)
+  );
+
+  setText("analysisConfidence", confidence);
+  setText("analysisSignal", signal);
+  setText("analysisReason", reason);
+}
+
+/* ---------------- DIGIT ANALYSIS ---------------- */
+
+function renderDigitAnalysis() {
+  const digits = state.digitHistory;
+  const sampleSize = digits.length;
+
+  setText("digitsSample", sampleSize);
+
+  if (sampleSize === 0) {
+    setText("mostFrequentDigit", "--");
+    setText("leastFrequentDigit", "--");
+    setText("evenPercentage", "0%");
+    setText("oddPercentage", "0%");
+    setText("overFivePercentage", "0%");
+    setText("underFivePercentage", "0%");
+    setText("repeatedDigit", "No");
+    setText("digitBias", "COLLECTING");
+    setText("digitConfidence", "LOW");
+
+    setText(
+      "digitAnalysisMessage",
+      "Waiting for digit data. Frequencies describe the sample only."
+    );
+
     return;
   }
 
   const counts = Array(10).fill(0);
-  digits.forEach(digit => counts[digit]++);
 
-  const most = Math.max(...counts);
-  const seenCounts = counts.filter(count => count > 0);
-  const least = Math.min(...seenCounts);
-
-  const mostDigit = counts.indexOf(most);
-  const leastDigit = counts.findIndex(count => count === least);
-
-  const even = digits.filter(d => d % 2 === 0).length;
-  const odd = total - even;
-  const over = digits.filter(d => d > 5).length;
-  const under = digits.filter(d => d < 5).length;
-
-  const evenPct = even / total * 100;
-  const oddPct = odd / total * 100;
-  const overPct = over / total * 100;
-  const underPct = under / total * 100;
-
-  let bias = "NEUTRAL";
-  let confidence = "LOW";
-
-  if (total >= 200) {
-    const difference = Math.abs(evenPct - oddPct);
-
-    if (difference >= 10) {
-      bias = evenPct > oddPct ? "EVEN BIAS" : "ODD BIAS";
-    }
-
-    if (difference >= 18) confidence = "MEDIUM";
-  }
-
-  show(
-    "mostFrequentDigit",
-    `${mostDigit} (${(most / total * 100).toFixed(1)}%)`
-  );
-
-  show(
-    "leastFrequentDigit",
-    `${leastDigit} (${(least / total * 100).toFixed(1)}%)`
-  );
-
-  show("evenPercentage", `${evenPct.toFixed(1)}%`);
-  show("oddPercentage", `${oddPct.toFixed(1)}%`);
-  show("overFivePercentage", `${overPct.toFixed(1)}%`);
-  show("underFivePercentage", `${underPct.toFixed(1)}%`);
-
-  show(
-    "repeatedDigit",
-    total >= 2 && digits[total - 1] === digits[total - 2]
-      ? "YES"
-      : "NO"
-  );
-
-  show("digitBias", bias);
-  show("digitConfidence", confidence);
-
-  show(
-    "digitAnalysisMessage",
-    total < 200
-      ? `Collecting initial sample: ${total}/200 ticks.`
-      : "Past frequencies do not reliably predict the next digit."
-  );
-}
-
-/* =========================================================
-   CHART
-========================================================= */
-
-function drawChart() {
-  const canvas = $("chart");
-  if (!canvas) return;
-
-  const rect = canvas.getBoundingClientRect();
-  const width = Math.max(300, Math.floor(rect.width));
-  const height = Math.max(220, Math.floor(rect.height));
-  const dpr = window.devicePixelRatio || 1;
-
-  canvas.width = width * dpr;
-  canvas.height = height * dpr;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, width, height);
-
-  if (state.prices.length < 2) return;
-
-  const min = Math.min(...state.prices);
-  const max = Math.max(...state.prices);
-  const range = max - min || 1;
-  const pad = 20;
-
-  ctx.beginPath();
-
-  state.prices.forEach((price, index) => {
-    const x = pad +
-      index / (state.prices.length - 1) * (width - pad * 2);
-
-    const y = height - pad -
-      (price - min) / range * (height - pad * 2);
-
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
+  digits.forEach(digit => {
+    counts[digit] += 1;
   });
 
-  ctx.strokeStyle = "#2196f3";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-}
+  let mostDigit = 0;
+  let leastDigit = 0;
 
-/* =========================================================
-   BASIC RISE/FALL CONTEXT
-========================================================= */
+  for (let digit = 1; digit < 10; digit++) {
+    if (counts[digit] > counts[mostDigit]) {
+      mostDigit = digit;
+    }
 
-function updateMarketAnalysis() {
-  const prices = state.prices;
-
-  if (prices.length < 20) {
-    show("analysisTrend", "WAITING");
-    show("analysisMomentum", "WAITING");
-    show("analysisSupport", "--");
-    show("analysisResistance", "--");
-    show("analysisSignal", "WAIT");
-    show("analysisConfidence", "LOW");
-    show("analysisReason", "Collecting 20 live price points.");
-    return;
+    if (counts[digit] < counts[leastDigit]) {
+      leastDigit = digit;
+    }
   }
 
-  const avg = values =>
-    values.reduce((sum, value) => sum + value, 0) / values.length;
+  const evenCount = digits.filter(digit => digit % 2 === 0).length;
+  const oddCount = sampleSize - evenCount;
 
-  const shortChange =
-    avg(prices.slice(-5)) - avg(prices.slice(-10, -5));
+  const overFive = digits.filter(digit => digit > 5).length;
+  const underFive = digits.filter(digit => digit < 5).length;
 
-  const mediumChange =
-    avg(prices.slice(-10)) - avg(prices.slice(-20, -10));
+  const percentage = count =>
+    `${((count / sampleSize) * 100).toFixed(1)}%
+      `;
 
-  let trend = "NEUTRAL";
+  setText("mostFrequentDigit", mostDigit);
+  setText("leastFrequentDigit", leastDigit);
+  setText("evenPercentage", percentage(evenCount));
+  setText("oddPercentage", percentage(oddCount));
+  setText("overFivePercentage", percentage(overFive));
+  setText("underFivePercentage", percentage(underFive));
 
-  if (shortChange > 0 && mediumChange > 0) trend = "BULLISH";
-  if (shortChange < 0 && mediumChange < 0) trend = "BEARISH";
+  const lastTwo = digits.slice(-2);
 
-  const recent = prices.slice(-20);
-  const support = Math.min(...recent);
-  const resistance = Math.max(...recent);
-  const range = resistance - support;
-
-  const ratio = range > 0 ? Math.abs(shortChange) / range : 0;
-
-  const momentum =
-    ratio >= 0.25 ? "STRONG" :
-    ratio >= 0.10 ? "MODERATE" : "WEAK";
-
-  let up = 0;
-  let down = 0;
-  const lastPrices = prices.slice(-8);
-
-  for (let i = 1; i < lastPrices.length; i++) {
-    if (lastPrices[i] > lastPrices[i - 1]) up++;
-    if (lastPrices[i] < lastPrices[i - 1]) down++;
-  }
-
-  const moves = up + down;
-  const consistency = moves
-    ? Math.max(up, down) / moves
-    : 0;
-
-  const current = prices[prices.length - 1];
-
-  const nearSupport =
-    range > 0 && current - support <= range * 0.15;
-
-  const nearResistance =
-    range > 0 && resistance - current <= range * 0.15;
-
-  let signal = "WAIT";
-
-  if (
-    trend === "BULLISH" &&
-    momentum !== "WEAK" &&
-    consistency >= 0.60 &&
-    !nearResistance
-  ) {
-    signal = "RISE";
-  } else if (
-    trend === "BEARISH" &&
-    momentum !== "WEAK" &&
-    consistency >= 0.60 &&
-    !nearSupport
-  ) {
-    signal = "FALL";
-  }
-
-  show("analysisTrend", trend);
-  show("analysisMomentum", momentum);
-  show("analysisSupport", support.toFixed(2));
-  show("analysisResistance", resistance.toFixed(2));
-  show("analysisSignal", signal);
-
-  show(
-    "analysisConfidence",
-    signal === "WAIT"
-      ? "LOW"
-      : momentum === "STRONG" && consistency >= 0.75
-        ? "HIGH"
-        : "MEDIUM"
+  setText(
+    "repeatedDigit",
+    lastTwo.length === 2 && lastTwo[0] === lastTwo[1]
+      ? "Yes"
+      : "No"
   );
 
-  show(
-    "analysisReason",
-    signal === "WAIT"
-      ? "Conditions are not sufficiently confirmed. Wait."
-      : `${trend} conditions detected; this is not a guarantee of the next move.`
+  const difference = Math.abs(evenCount - oddCount);
+
+  let bias = "NO CLEAR BIAS";
+  let confidence = "LOW";
+
+  if (sampleSize >= 20 && difference / sampleSize >= 0.15) {
+    bias = evenCount > oddCount
+      ? "EVEN FREQUENCY"
+      : "ODD FREQUENCY";
+
+    confidence = "OBSERVED";
+  }
+
+  setText("digitBias", bias);
+  setText("digitConfidence", confidence);
+
+  setText(
+    "digitAnalysisMessage",
+    "Historical frequencies describe this sample only; they do not predict the next digit."
   );
 }
 
-/* =========================================================
-   EVENTS AND STARTUP
-========================================================= */
+/* ---------------- SAFE TRADE CONTROLS ---------------- */
 
-function bindEvents() {
-  if ($("loginBtn")) {
-    $("loginBtn").addEventListener("click", () => {
-      window.location.href = "/login";
-    });
+function configureSafeTradingControls() {
+  const buyButton = byId("buyBtn");
+
+  if (buyButton) {
+    buyButton.disabled = true;
+    buyButton.textContent = "DEMO BUY UNAVAILABLE";
   }
 
-  if ($("logoutBtn")) {
-    $("logoutBtn").addEventListener("click", logout);
+  setStatus(
+    "quoteStatus",
+    "Trade quotes not connected",
+    "#f59e0b"
+  );
+
+  setStatus(
+    "tradeMessage",
+    "Demo order placement remains disabled until quote and purchase handling are verified.",
+    "#f59e0b"
+  );
+
+  const contractType = byId("contractType");
+  const barrierContainer = byId("barrierContainer");
+
+  function updateBarrierVisibility() {
+    if (!contractType || !barrierContainer) return;
+
+    barrierContainer.hidden = ![
+      "DIGITOVER",
+      "DIGITUNDER"
+    ].includes(contractType.value);
   }
 
-  if ($("marketSelect")) {
-    $("marketSelect").addEventListener("change", event => {
-      selectMarket(event.target.value);
-    });
+  if (contractType) {
+    contractType.addEventListener(
+      "change",
+      updateBarrierVisibility
+    );
   }
 
-  if ($("accountType")) {
-    $("accountType").addEventListener("change", event => {
-      event.target.value = "demo";
-      show(
-        "accountTypeMessage",
-        "Real-money trading is disabled. Demo remains selected."
+  updateBarrierVisibility();
+
+  const riseButton = byId("riseBtn");
+  const fallButton = byId("fallBtn");
+
+  if (riseButton) {
+    riseButton.addEventListener("click", () => {
+      setStatus(
+        "directionStatus",
+        "RISE selected for analysis. No trade placed.",
+        "#94a3b8"
       );
     });
   }
 
-  if ($("contractType")) {
-    $("contractType").addEventListener("change", event => {
-      const type = event.target.value;
-      const isDigit =
-        type === "DIGITOVER" || type === "DIGITUNDER";
-
-      if ($("barrierContainer")) {
-        $("barrierContainer").style.display =
-          isDigit ? "block" : "none";
-      }
+  if (fallButton) {
+    fallButton.addEventListener("click", () => {
+      setStatus(
+        "directionStatus",
+        "FALL selected for analysis. No trade placed.",
+        "#94a3b8"
+      );
     });
   }
 
-  if ($("riseBtn")) {
-    $("riseBtn").addEventListener("click", () => {
-      if ($("contractType")) $("contractType").value = "CALL";
-      show("directionStatus", "RISE selected — demo order execution is disabled.");
+  const depositButton = byId("depositBtn");
+
+  if (depositButton) {
+    depositButton.addEventListener("click", () => {
+      window.open(
+        "https://app.deriv.com/",
+        "_blank",
+        "noopener,noreferrer"
+      );
     });
   }
-
-  if ($("fallBtn")) {
-    $("fallBtn").addEventListener("click", () => {
-      if ($("contractType")) $("contractType").value = "PUT";
-      show("directionStatus", "FALL selected — demo order execution is disabled.");
-    });
-  }
-
-  // Never send buy requests in this market-data repair version.
-  if ($("buyBtn")) {
-    $("buyBtn").disabled = true;
-    $("buyBtn").textContent = "BUY DISABLED";
-  }
-
-  show("quoteStatus", "Quotes disabled during connection repair");
-  show("tradeMessage", "No orders can be sent in this version.");
-  show("directionStatus", "Market-data diagnostic mode");
 }
+
+/* ---------------- EVENT HANDLERS ---------------- */
+
+function bindEvents() {
+  const loginButton = byId("loginBtn");
+  const logoutButton = byId("logoutBtn");
+  const marketSelect = byId("marketSelect");
+
+  if (loginButton) {
+    loginButton.addEventListener("click", loginWithDeriv);
+  }
+
+  if (logoutButton) {
+    logoutButton.addEventListener("click", logoutFromDeriv);
+  }
+
+  if (marketSelect) {
+    marketSelect.addEventListener("change", handleMarketChange);
+  }
+
+  window.addEventListener("resize", renderChart);
+}
+
+/* ---------------- APPLICATION START ---------------- */
 
 async function startApp() {
   bindEvents();
+  configureSafeTradingControls();
 
-  setConnection("Starting Tradedollars...");
-  setPriceStatus("Checking configuration...");
+  setStatus(
+    "connectionStatus",
+    "Starting Tradedollars...",
+    "#f59e0b"
+  );
 
-  try {
-    await loadConfig();
-    await checkAccount();
+  await loadConfig();
+  await checkAccount();
 
-    const appId = String(state.config?.app_id || "").trim();
+  connectPublicSocket();
 
-
-    connectPublicSocket();
-  } catch (error) {
-    console.error("Startup error:", error);
-    setConnection("Startup failed");
-    setPriceStatus(error.message || "Could not initialize the app.");
-  }
+  setStatus(
+    "connectionStatus",
+    "Application running",
+    "#22c55e"
+  );
 }
-
-/* =========================================================
-   APPLICATION ENTRY POINT
-========================================================= */
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", startApp);
+  document.addEventListener("DOMContentLoaded", startApp, {
+    once: true
+  });
 } else {
   startApp();
-}
+     }
+        
