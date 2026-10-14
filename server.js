@@ -14,7 +14,8 @@ const CLIENT_ID =
   process.env.DERIV_CLIENT_ID ||
   process.env.CLIENT_ID ||
   "";
-
+const DERIV_APP_ID =
+process.env.DERIV_APP_ID || "";
 const BASE_URL =
   (
     process.env.BASE_URL ||
@@ -214,21 +215,15 @@ app.get(
    CONFIG
 ========================================================= */
 
-app.get(
-  "/api/config",
-  (req, res) => {
-    res.json({
-      configured:
-        Boolean(
-          CLIENT_ID &&
-          BASE_URL
-        ),
+app.get("/api/config", (req, res) => {
+res.set("Cache-Control", "no-store");
 
-      real_trading_enabled:
-        ENABLE_REAL_TRADING
-    });
-  }
-);
+res.json({
+configured: Boolean(CLIENT_ID && BASE_URL),
+app_id: DERIV_APP_ID,
+real_trading_enabled: false
+});
+});
 
 
 /* =========================================================
