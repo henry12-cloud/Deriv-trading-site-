@@ -208,16 +208,7 @@ function connectPublicSocket() {
 
   // This is the numeric Deriv application ID, not the OAuth
   // client ID. The server exposes it through /api/config.
-  const appId = String(state.config?.app_id || "").trim();
-
-  if (!/^\d+$/.test(appId)) {
-    setConnection("Deriv App ID missing or invalid");
-    setPriceStatus(
-      "Set DERIV_APP_ID in Render to your numeric Deriv application ID."
-    );
-    show("marketStatus", "Market connection not started");
-    return;
-  }
+  
 const url = "wss://ws.derivws.com/websockets/v3";
 
   setConnection("Connecting to Deriv market data...");
