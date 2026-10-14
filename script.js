@@ -380,12 +380,10 @@ function connectPublicSocket() {
     state.publicReady = true;
     setText(ui.connectionStatus, "Market data connected");
 
-    send(socket, {
-      active_symbols: "brief",
-      product_type: "basic",
-      req_id: nextId()
-    });
-  };
+send(socket, {
+  active_symbols: "brief",
+  req_id: nextId()
+});
 
   socket.onmessage = event => {
     if (state.publicSocket !== socket) return;
