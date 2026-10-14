@@ -328,7 +328,6 @@ function sendPublicMessage(message) {
 }
 
 
-
 function connectPublicSocket() {
   if (
     state.publicSocket &&
@@ -340,8 +339,11 @@ function connectPublicSocket() {
     return;
   }
 
-  const socketUrl =
-    "wss://api.derivws.com/trading/v1/options/ws/public";
+  setStatus(
+    "marketStatus",
+    "Connecting to market list...",
+    "#f59e0b"
+  );
 
   setStatus(
     "priceStatus",
@@ -352,16 +354,24 @@ function connectPublicSocket() {
   let socket;
 
   try {
-    socket = new WebSocket(socketUrl);
+    // Use the standard Deriv WebSocket API.
+    socket = new WebSocket(PUBLIC_WS_URL);
   } catch (error) {
-    console.error("Public WebSocket creation failed:", error);
-    setStatus("priceStatus", "Connection failed; retrying...", "#ef4444");
+    console.error("WebSocket creation failed:", error);
+
+    setStatus(
+      "marketStatus",
+      "Unable to create market connection",
+      "#ef4444"
+    );
+
     schedulePublicReconnect();
     return;
   }
 
   state.publicSocket = socket;
   state.socketReady = false;
+  state.loadingMarkets = true;
 
   socket.onopen = function () {
     if (state.publicSocket !== socket) return;
@@ -369,21 +379,30 @@ function connectPublicSocket() {
     state.socketReady = true;
     state.reconnectDelay = 2000;
 
-    console.log("Public market WebSocket connected.");
+    console.log("Deriv public WebSocket connected.");
+
+    setStatus(
+      "marketStatus",
+      "Requesting available markets...",
+      "#f59e0b"
+    );
 
     setStatus(
       "priceStatus",
-      "Connected; requesting markets and live ticks...",
+      "Connected; requesting live ticks...",
       "#22c55e"
     );
 
+    // Request the available market list.
     socket.send(JSON.stringify({
       active_symbols: "brief",
+      product_type: "basic",
       req_id: 1001
     }));
 
+    // Subscribe to the selected market's live prices.
     socket.send(JSON.stringify({
-      ticks: "1HZ100V",
+      ticks: state.selectedSymbol || DEFAULT_SYMBOL,
       subscribe: 1,
       req_id: 1002
     }));
@@ -397,88 +416,107 @@ function connectPublicSocket() {
     try {
       message = JSON.parse(event.data);
     } catch (error) {
-      console.error("Invalid WebSocket message:", error);
+      console.error("Invalid WebSocket response:", error);
       return;
     }
 
+    console.log("Deriv response:", message);
+
+    // Handle API errors without hiding the diagnostic information.
     if (message.error) {
+      const errorMessage =
+        message.error.message || "Unknown API error";
+
       console.error(
-        "Market API error:",
+        "Deriv API error:",
         message.error.code,
-        message.error.message
+        errorMessage,
+        message.echo_req
       );
 
-      setStatus(
-        "priceStatus",
-        "Market API error: " + message.error.message,
-        "#ef4444"
-      );
+      if (
+        message.req_id === 1001 ||
+        message.echo_req?.active_symbols
+      ) {
+        state.loadingMarkets = false;
+
+        setStatus(
+          "marketStatus",
+          "Market request failed: " + errorMessage,
+          "#ef4444"
+        );
+      }
+
+      if (
+        message.req_id === 1002 ||
+        message.echo_req?.ticks
+      ) {
+        setStatus(
+          "priceStatus",
+          "Tick request failed: " + errorMessage,
+          "#ef4444"
+        );
+      }
 
       return;
     }
-if (
-  message.req_id === 1001 ||
-  message.echo_req?.active_symbols ||
-  message.msg_type === "active_symbols"
-) {
-  const count = Array.isArray(message.active_symbols)
-    ? message.active_symbols.length
-    : 0;
 
-  console.log("MARKET DIAGNOSTIC:", {
-    msg_type: message.msg_type,
-    req_id: message.req_id,
-    market_count: count,
-    has_active_symbols: Array.isArray(message.active_symbols),
-    error: message.error || null,
-    echo_req: message.echo_req || null
-  });
+    // Process the actual market-list response.
+    if (
+      message.msg_type === "active_symbols" ||
+      Array.isArray(message.active_symbols)
+    ) {
+      const symbols = message.active_symbols;
 
-  setStatus(
-    "marketStatus",
-    "Market response: " +
-      (message.msg_type || "unknown type") +
-      " | Count: " + count,
-    count > 0 ? "#22c55e" : "#f59e0b"
-  );
-}
+      state.loadingMarkets = false;
 
-   if (
-  message.msg_type === "active_symbols" ||
-  Array.isArray(message.active_symbols)
-) {
-  const symbols = message.active_symbols;
+      if (!Array.isArray(symbols)) {
+        console.error(
+          "Market response did not contain an array:",
+          message
+        );
 
-  console.log("MARKET LIST RESPONSE:", message);
+        setStatus(
+          "marketStatus",
+          "Market response received, but list is missing",
+          "#ef4444"
+        );
 
-  if (Array.isArray(symbols)) {
-    console.log("MARKETS RECEIVED:", symbols.length);
+        return;
+      }
 
-    if (typeof processActiveSymbols === "function") {
-      processActiveSymbols(symbols);
-    } else {
-      console.error("processActiveSymbols() is missing.");
-      setStatus(
-        "marketStatus",
-        "Market processor function missing",
-        "#ef4444"
-      );
-    }
-  } else {
-    console.error("Market response has no active_symbols array:", message);
+      console.log("Markets received:", symbols.length);
 
-    setStatus(
-      "marketStatus",
-      "Market response received, but list is missing",
-      "#ef4444"
-    );
-  }
-  }
+      if (typeof processActiveSymbols === "function") {
+        processActiveSymbols(symbols);
 
-    if (message.msg_type === "tick") {
-      console.log("Live tick received:", message.tick?.quote);
+        // Report the number actually processed.
+        const processedCount = Array.isArray(state.activeSymbols)
+          ? state.activeSymbols.length
+          : 0;
+
+        setStatus(
+          "marketStatus",
+          processedCount > 0
+            ? processedCount + " markets loaded"
+            : "Received " + symbols.length +
+              " markets, but none were processed",
+          processedCount > 0 ? "#22c55e" : "#ef4444"
+        );
+      } else {
+        console.error("processActiveSymbols() is missing.");
+
+        setStatus(
+          "marketStatus",
+          "Market processor function missing",
+          "#ef4444"
+        );
+      }
+
+      return;
     }
 
+    // Keep the existing live-price and analysis handlers.
     if (typeof handlePublicMessage === "function") {
       handlePublicMessage(message);
     }
@@ -493,11 +531,18 @@ if (
 
     state.publicSocket = null;
     state.socketReady = false;
+    state.loadingMarkets = false;
 
     console.warn(
-      "Public market WebSocket closed:",
+      "Public WebSocket closed:",
       event.code,
       event.reason || "(no reason supplied)"
+    );
+
+    setStatus(
+      "marketStatus",
+      "Market connection closed; reconnecting...",
+      "#f59e0b"
     );
 
     setStatus(
@@ -508,7 +553,10 @@ if (
 
     schedulePublicReconnect();
   };
-  }
+         }
+         
+
+
        
 function schedulePublicReconnect() {
   if (state.publicReconnectTimer) return;
