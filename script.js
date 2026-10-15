@@ -991,11 +991,8 @@ function renderDigitAnalysis() {
   const overFive = digits.filter(digit => digit > 5).length;
   const underFive = digits.filter(digit => digit < 5).length;
 
-
 const percentage = count =>
-  `${((count / sampleSize) * 100).toFixed(1)}%`;
-   
-
+"${((count / sampleSize) * 100).toFixed(1)}%";
   setText("mostFrequentDigit", mostDigit);
   setText("leastFrequentDigit", leastDigit);
   setText("evenPercentage", percentage(evenCount));
