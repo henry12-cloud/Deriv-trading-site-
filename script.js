@@ -82,14 +82,14 @@ function connectPublicSocket() {
     state.connected = true;
     state.reconnectDelay = 2000;
     setStatus("priceStatus", "Connected. Requesting market list...", "#25d695");
-    socket.send(JSON.stringify({
-      active_symbols: "brief",
-      product_type: "basic",
-      req_id: ++state.requestId
-    }));
-  });
+
+   socket.send(JSON.stringify({
+  active_symbols: "brief",
+  req_id: ++state.requestId
+}));
 
   socket.addEventListener("message", event => {
+     console.log("DERIV MARKET RESPONSE:", event.data);
     let message;
     try {
       message = JSON.parse(event.data);
