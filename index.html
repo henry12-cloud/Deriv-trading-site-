@@ -3,291 +3,436 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#07111f">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08111f">
   <title>Tradedollars</title>
   <style>
     :root {
       color-scheme: dark;
-      --bg: #07111f;
-      --panel: #101e30;
-      --border: #253850;
-      --text: #eef5ff;
-      --muted: #9cafc6;
-      --green: #25d695;
-      --red: #ff687b;
-      --amber: #ffcc66;
+      --bg: #08111f;
+      --panel: #111f33;
+      --panel2: #0a1728;
+      --border: #263a54;
+      --text: #edf5ff;
+      --muted: #9aafc8;
+      --green: #29d99a;
+      --amber: #ffd166;
+      --red: #ff6d80;
+      --blue: #55a7ff;
     }
 
     * { box-sizing: border-box; }
 
     body {
       margin: 0;
-      padding: 18px;
-      background: var(--bg);
+      background:
+        radial-gradient(ellipse at top, #142943 0%, var(--bg) 55%);
       color: var(--text);
       font-family: Arial, sans-serif;
-      line-height: 1.5;
+      line-height: 1.45;
     }
 
-    main { max-width: 1000px; margin: auto; }
+    header {
+      padding: 20px 14px 15px;
+      background: #091524;
+      border-bottom: 1px solid var(--border);
+    }
 
-    header { margin-bottom: 22px; }
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+    }
 
-    h1 { margin: 0; font-size: 30px; }
+    .brand-icon {
+      width: 43px;
+      height: 43px;
+      display: grid;
+      place-items: center;
+      flex-shrink: 0;
+      border-radius: 12px;
+      background: #173753;
+      border: 1px solid #315d7d;
+      color: var(--green);
+      font-weight: 900;
+      font-size: 23px;
+    }
 
-    h2 { font-size: 19px; margin-top: 0; }
+    h1 { margin: 0; font-size: 25px; letter-spacing: .3px; }
+    h2 { margin: 0 0 13px; font-size: 17px; }
+    p { color: var(--muted); font-size: 13px; }
+    .subtitle { margin: 3px 0 0; font-size: 12px; }
 
-    .subtitle, .muted { color: var(--muted); }
+    main {
+      max-width: 950px;
+      margin: auto;
+      padding: 12px;
+    }
 
     .panel {
-      background: var(--panel);
+      margin: 12px 0;
+      padding: 14px;
+      background: linear-gradient(145deg, #14243a, #101c2e);
       border: 1px solid var(--border);
       border-radius: 14px;
-      padding: 18px;
-      margin: 14px 0;
+      box-shadow: 0 7px 20px #00000018;
+      min-width: 0;
+    }
+
+    .status {
+      padding: 10px;
+      border-radius: 9px;
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      font-size: 13px;
+      overflow-wrap: anywhere;
     }
 
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-      gap: 14px;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
     }
 
-    .value { font-size: 23px; font-weight: bold; }
+    .metric {
+      min-width: 0;
+      padding: 11px;
+      background: #091626;
+      border: 1px solid #1f344d;
+      border-radius: 10px;
+    }
+
+    .metric-label {
+      color: var(--muted);
+      font-size: 11px;
+      margin-bottom: 4px;
+    }
+
+    .metric-value {
+      font-size: 19px;
+      font-weight: 800;
+      overflow-wrap: anywhere;
+    }
 
     label {
       display: block;
       margin: 12px 0 5px;
       color: var(--muted);
+      font-size: 12px;
     }
 
-    input, select, button {
+    select, textarea, button {
       width: 100%;
-      padding: 12px;
-      border-radius: 8px;
+      padding: 11px;
+      border-radius: 9px;
       border: 1px solid var(--border);
       background: #091626;
       color: var(--text);
-      font-size: 16px;
+      font: inherit;
     }
 
     button {
+      margin-top: 9px;
+      font-size: 13px;
+      font-weight: 800;
       cursor: pointer;
-      background: #176b50;
-      border: 0;
-      font-weight: bold;
-      margin-top: 10px;
+      transition: filter .15s ease;
     }
 
-    button:disabled { opacity: .5; cursor: not-allowed; }
+    button:not(:disabled):active { filter: brightness(1.2); }
 
-    .secondary { background: #263c56; }
-
-    .status {
-      padding: 10px;
-      border-radius: 8px;
-      background: #091626;
-      overflow-wrap: anywhere;
+    button:disabled {
+      opacity: .45;
+      cursor: not-allowed;
     }
 
-    .green { color: var(--green); }
-    .red { color: var(--red); }
-    .amber { color: var(--amber); }
+    .primary {
+      color: #04140f;
+      background: var(--green);
+      border-color: var(--green);
+    }
 
-    .digit-list {
+    .secondary { background: #172a41; }
+
+    .buy-button {
+      min-height: 48px;
+      background: #243449;
+      color: #b9c6d7;
+      border: 1px solid #465970;
+      letter-spacing: .4px;
+    }
+
+    .buy-note {
+      margin: 6px 0 0;
+      font-size: 11px;
+      text-align: center;
+    }
+
+    .section-kicker {
+      color: var(--green);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1.3px;
+      margin-bottom: 5px;
+    }
+
+    .live-digit {
+      font-size: 34px;
+      color: var(--green);
+    }
+
+    .signal-wait {
+      color: var(--amber);
+    }
+
+    .analysis-buy-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 10px;
+    }
+
+    .analysis-card {
+      min-width: 0;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      background: var(--panel2);
+    }
+
+    .analysis-card h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+    }
+
+    .analysis-card .metric { padding: 9px; }
+
+    #priceChart {
+      display: block;
+      width: 100%;
+      height: 200px;
+      background: #081423;
+      border: 1px solid #20334b;
+      border-radius: 10px;
+    }
+
+    #digitHistory {
       display: flex;
       flex-wrap: wrap;
-      gap: 7px;
-      margin-top: 10px;
+      gap: 6px;
     }
 
     .digit {
-      width: 36px;
-      height: 36px;
+      width: 31px;
+      height: 33px;
       display: grid;
       place-items: center;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      font-weight: bold;
-    }
-
-    canvas {
-      width: 100%;
-      height: 220px;
-      display: block;
       background: #091626;
-      border-radius: 8px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      font-weight: bold;
+      font-size: 13px;
     }
 
-    a { color: #79c7ff; }
+    #observationHistory {
+      font-size: 12px;
+      overflow-wrap: anywhere;
+    }
 
     footer {
-      text-align: center;
+      padding: 20px 14px;
       color: var(--muted);
-      font-size: 13px;
-      padding: 18px 0;
+      font-size: 11px;
+      text-align: center;
+      border-top: 1px solid var(--border);
+    }
+
+    @media (min-width: 650px) {
+      main { padding: 18px; }
+      .analysis-buy-grid {
+        grid-template-columns: minmax(0, 1.5fr) minmax(230px, 1fr);
+      }
+      .panel { padding: 17px; }
+      .metric-value { font-size: 21px; }
+    }
+
+    @media (max-width: 380px) {
+      main { padding: 8px; }
+      .panel { padding: 10px; }
+      .metric { padding: 9px; }
+      .metric-value { font-size: 17px; }
+      h1 { font-size: 22px; }
     }
   </style>
 </head>
+
 <body>
-<main>
   <header>
-    <h1>Tradedollars</h1>
-    <div class="subtitle">Independent Third-Party Deriv Trading Interface</div>
-    <p id="appStatus" class="status">Starting application...</p>
+    <div class="brand-row">
+      <div class="brand-icon">T</div>
+      <div>
+        <h1>Tradedollars</h1>
+        <p class="subtitle">Independent Third-Party Deriv Trading Interface</p>
+      </div>
+    </div>
+    <div id="appStatus" class="status" style="margin-top:12px">
+      Starting application...
+    </div>
   </header>
 
-  <section class="panel">
-    <h2>My Trading Account</h2>
-    <div class="grid">
-      <div>
-        <div class="muted">Connection</div>
-        <div id="accountStatus" class="value">Checking...</div>
+  <main>
+    <section class="panel">
+      <div class="section-kicker">Account overview</div>
+      <h2>My Trading Account</h2>
+      <div class="grid">
+        <div class="metric">
+          <div class="metric-label">Connection</div>
+          <div id="accountStatus" class="metric-value">Checking...</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Account ID</div>
+          <div id="accountId" class="metric-value">--</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Balance</div>
+          <div id="accountBalance" class="metric-value">--</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Trading mode</div>
+          <div class="metric-value">Demo only</div>
+        </div>
       </div>
-      <div>
-        <div class="muted">Account ID</div>
-        <div id="accountId" class="value">--</div>
+      <p id="accountMessage">Checking demo account status.</p>
+      <button id="loginButton" class="primary">Login with Deriv</button>
+      <button id="refreshAccount" class="secondary">Refresh Account</button>
+      <button id="openDeriv" class="secondary">Open Deriv</button>
+      <p>Real-money trading is disabled. Manage deposits only through the official Deriv website.</p>
+    </section>
+
+    <section class="panel">
+      <div class="section-kicker">Market selection</div>
+      <h2>Available Markets</h2>
+      <div id="marketStatus" class="status" role="status">
+        Waiting for market data...
       </div>
-      <div>
-        <div class="muted">Balance</div>
-        <div id="accountBalance" class="value">--</div>
-      </div>
-    </div>
-    <p id="accountMessage" class="muted">Checking demo account status.</p>
-    <a id="loginLink" href="/auth/deriv">Login with Deriv</a>
-    <button id="refreshAccount" class="secondary" type="button">
-      Refresh Account
-    </button>
-  </section>
+      <label for="marketSelect">Choose Market</label>
+      <select id="marketSelect">
+        <option value="1HZ100V">Volatility 100 (1s) Index</option>
+      </select>
+      <p>Selected market: <strong id="selectedMarket">Volatility 100 (1s) Index</strong></p>
+    </section>
 
-  <section class="panel">
-    <h2>Trading Mode</h2>
-    <label for="accountMode">Account</label>
-    <select id="accountMode">
-      <option value="demo">Demo Account</option>
-      <option value="real" disabled>Real Account (Disabled)</option>
-    </select>
-    <p class="amber">Real-money trading is disabled. This interface is for market monitoring and demo testing only.</p>
-    <p class="muted">
-      Deposit funds only through the official Deriv website.
-      Deposit minimums and payment methods may vary.
-    </p>
-    <a href="https://deriv.com/" target="_blank" rel="noopener noreferrer">
-      Open Deriv
-    </a>
-  </section>
-
-  <section class="panel">
-    <h2>Available Markets</h2>
-    <p id="marketStatus" class="status">Waiting for market data...</p>
-    <label for="marketSelect">Choose Market</label>
-    <select id="marketSelect">
-      <option value="1HZ100V">Volatility 100 (1s) Index</option>
-    </select>
-    <p>Selected market: <strong id="selectedMarket">Volatility 100 (1s) Index</strong></p>
-    <p id="priceStatus" class="muted">Waiting for live price...</p>
-  </section>
-
-  <section class="grid">
-    <div class="panel">
+    <section class="panel">
+      <div class="section-kicker">Live feed</div>
       <h2>Live Market</h2>
-      <div class="muted">Latest price</div>
-      <div id="livePrice" class="value">--</div>
-      <div class="muted">Last digit</div>
-      <div id="liveDigit" class="value">--</div>
-      <div class="muted">Ticks received</div>
-      <div id="tickCount" class="value">0</div>
-      <p id="tickStatus" class="muted">Waiting for ticks.</p>
-    </div>
+      <div id="priceStatus" class="status" role="status">
+        Waiting for live price...
+      </div>
+      <div class="grid" style="margin-top:10px">
+        <div class="metric">
+          <div class="metric-label">Latest price</div>
+          <div id="livePrice" class="metric-value">--</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Active Digit</div>
+          <div id="liveDigit" class="metric-value live-digit">--</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Ticks received</div>
+          <div id="tickCount" class="metric-value">0</div>
+        </div>
+        
+      </div>
+      <p id="tickStatus">Waiting for ticks.</p>
+    </section>
 
-    <div class="panel">
+    <section class="panel">
+      <div class="section-kicker">Recent activity</div>
       <h2>Recent Last Digits</h2>
-      <div id="digitHistory" class="digit-list">
-        <span class="muted">Waiting for data...</span>
+      <div id="digitHistory">Waiting for data...</div>
+    </section>
+
+    <section class="panel">
+      <div class="section-kicker">Price movement</div>
+      <h2>Live Price Chart</h2>
+      <canvas id="priceChart" width="800" height="220"></canvas>
+      <p>The chart shows received prices; it does not predict future prices.</p>
+    </section>
+
+    <section class="panel">
+      <div class="section-kicker">Analysis and action</div>
+      <h2>Digits Analysis &amp; Signal</h2>
+
+      <div class="analysis-buy-grid">
+        <div class="analysis-card">
+          <h3>Digits Analysis</h3>
+          <div class="grid">
+            <div class="metric">
+              <div class="metric-label">Sample size</div>
+              <div id="sampleSize" class="metric-value">0</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Most frequent digit</div>
+              <div id="mostDigit" class="metric-value">--</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Even / Odd</div>
+              <div id="evenOdd" class="metric-value">--</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Over 5 / Under 5</div>
+              <div id="overUnder" class="metric-value">--</div>
+            </div>
+          </div>
+          <p id="analysisStatus">Analysis will appear when market data arrives.</p>
+          <p>Frequencies describe the sample only; they do not predict the next digit.</p>
+        </div>
+
+        <div class="analysis-card">
+          <h3>Bot Signal Monitor</h3>
+          <div class="metric">
+            <div class="metric-label">Current signal</div>
+            <div id="signal" class="metric-value signal-wait">WAIT</div>
+          </div>
+          <p id="signalReason">Waiting for sufficient market data.</p>
+          <div class="metric">
+            <div class="metric-label">Bot Status</div>
+            <div id="botStatus" class="metric-value">Stopped</div>
+          </div>
+          <button id="startMonitor" class="primary">Start Signal Monitor</button>
+          <button id="stopMonitor" class="secondary">Stop Signal Monitor</button>
+          <button id="confirmBuy" class="buy-button" type="button" disabled>
+            CONFIRM BUY — DISABLED
+          </button>
+          <p class="buy-note">Signal-only mode. No orders are placed.</p>
+        </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section class="panel">
-    <h2>Live Price Chart</h2>
-    <canvas id="priceChart" width="900" height="220"></canvas>
-    <p class="muted">The chart displays received market prices. It does not predict future prices.</p>
-  </section>
-
-  <section class="panel">
-    <h2>Digits Analysis</h2>
-    <div class="grid">
-      <div>
-        <div class="muted">Sample size</div>
-        <div id="sampleSize" class="value">0</div>
-      </div>
-      <div>
-        <div class="muted">Most frequent digit</div>
-        <div id="mostDigit" class="value">--</div>
-      </div>
-      <div>
-        <div class="muted">Even / Odd</div>
-        <div id="evenOdd" class="value">--</div>
-      </div>
-      <div>
-        <div class="muted">Over 5 / Under 5</div>
-        <div id="overUnder" class="value">--</div>
-      </div>
-    </div>
-    <p id="analysisStatus" class="status">
-      Analysis will appear when market data arrives.
-    </p>
-    <p class="muted">
-      Historical digit frequencies describe the sample only. They do not
-      guarantee or predict the next digit.
-    </p>
-  </section>
-
-  <section class="panel">
-    <h2>Signal Monitor</h2>
-    <div class="muted">Current signal</div>
-    <div id="signal" class="value amber">WAIT</div>
-    <p id="signalReason" class="muted">
-      Waiting for sufficient market data.
-    </p>
-    <p id="botStatus" class="status">
-      Signal-only mode. No orders will be placed by the monitor.
-    </p>
-    <button id="startMonitor" type="button">Start Signal Monitor</button>
-    <button id="stopMonitor" type="button" class="secondary">Stop Signal Monitor</button>
-  </section>
-
-  <section class="panel">
-    <h2>Demo Test Record</h2>
-    <p class="muted">
-      Record your observations before considering any strategy. This section
-      does not place trades.
-    </p>
-    <label for="testStrategy">Strategy being observed</label>
-    <select id="testStrategy">
-      <option value="overunder">Digits Over / Under</option>
-      <option value="evenodd">Digits Even / Odd</option>
-    </select>
-
-    <label for="testNotes">Observation notes</label>
-    <input id="testNotes" type="text" placeholder="Describe the signal and market conditions">
-
-    <button id="recordObservation" type="button">Record Observation</button>
-    <div id="recordStatus" class="status" aria-live="polite">
-      No observations recorded this session.
-    </div>
-    <div id="observationHistory"></div>
-  </section>
+    <section class="panel">
+      <div class="section-kicker">Testing journal</div>
+      <h2>Demo Test Record</h2>
+      <p>Record observations before evaluating a strategy. This section does not place trades.</p>
+      <label for="testStrategy">Strategy being observed</label>
+      <select id="testStrategy">
+        <option value="overunder">Digits Over / Under</option>
+        <option value="evenodd">Digits Even / Odd</option>
+      </select>
+      <label for="testNotes">Observation notes</label>
+      <textarea id="testNotes" rows="3" placeholder="Describe the signal and market conditions"></textarea>
+      <button id="recordObservation" class="primary">Record Observation</button>
+      <p id="recordStatus"></p>
+      <div id="observationHistory">No observations recorded this session.</div>
+    </section>
+  </main>
 
   <footer>
     Tradedollars is an independent interface and is not an official Deriv product.
     Market data and signals can be delayed or unavailable. Demo testing does not
-    guarantee future results.
+    guarantee future results. Real-money trading is disabled.
   </footer>
-</main>
 
-<script src="/script.js" defer></script>
+  <script src="./script.js" defer></script>
 </body>
   </html>
-      
+  
