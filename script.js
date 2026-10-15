@@ -7,9 +7,8 @@
    No orders are placed.
    ===================================================== */
 
-const APP_ID = "34qPaViEQZZw84Mc5thoO";
 const PUBLIC_WS_URL =
-  `wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`;
+  "wss://ws.binaryws.com/websockets/v3";
 
 const state = {
   socket: null,
