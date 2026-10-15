@@ -1,38 +1,58 @@
 
+/* =========================================================
+   TRADEDOLLARS — SCRIPT.JS
+   Public market data + digit analysis + signal-only monitoring
+   No orders are placed. Real-money trading remains disabled.
+   ========================================================= */
+
 "use strict";
 
-/* =====================================================
-   TRADEDOLLARS — CLEAN SIGNAL-ONLY FOUNDATION
-   Public market data and descriptive digit analysis.
-   No orders are placed.
-   ===================================================== */
+/* ---------------- CONFIGURATION ---------------- */
 
+// Public testing app ID for the legacy Deriv WebSocket API.
+// This is NOT your OAuth client ID or trading authorization.
 const PUBLIC_WS_URL =
-  "wss://ws.binaryws.com/websockets/v3";
+  "wss://ws.derivws.com/websockets/v3?app_id=1089";
+
+const DEFAULT_SYMBOL = "1HZ100V";
+const DEFAULT_MARKET_NAME = "Volatility 100 (1s) Index";
+
+const MAX_DIGIT_HISTORY = 2000;
+const MAX_PRICE_HISTORY = 100;
+const MAX_OBSERVATIONS = 100;
 
 const state = {
   socket: null,
   reconnectTimer: null,
   responseTimer: null,
   requestId: 0,
+
   connected: false,
-  monitoring: false,
-  symbol: "1HZ100V",
-  marketName: "Volatility 100 (1s) Index",
+  monitoring: true,
+  subscribed: false,
+
+  symbol: DEFAULT_SYMBOL,
+  marketName: DEFAULT_MARKET_NAME,
+
   activeSymbols: [],
   ticks: 0,
   latestPrice: null,
   latestDigit: null,
+
   digitHistory: [],
   priceHistory: [],
   observations: []
 };
 
-const $ = id => document.getElementById(id);
+/* ---------------- SAFE DOM HELPERS ---------------- */
+
+function $(id) {
+  return document.getElementById(id);
+}
 
 function setText(id, value) {
   const element = $(id);
-  if (element) element.textContent = value;
+  if (element) element.textContent = String(value);
 }
 
 function setStatus(id, message, color) {
@@ -41,27 +61,22 @@ function setStatus(id, message, color) {
 
   element.textContent = message;
 
-  if (color) element.style.color = color;
+  if (color) {
+    element.style.color = color;
+  }
 }
 
-function formatPrice(value, decimals = 2) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number.toFixed(decimals) : "--";
+function sendJson(socket, payload) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    console.warn("WebSocket is not open; request not sent.");
+    return false;
+  }
+
+  socket.send(JSON.stringify(payload));
+  return true;
 }
 
-function getLastDigit(price, pipSize) {
-  const decimals = Math.max(
-    0,
-    Math.min(10, Number(pipSize) || 0)
-  );
-
-  const formatted = Number(price).toFixed(decimals);
-  const digits = formatted.replace(/\D/g, "");
-
-  return digits.length
-    ? Number(digits[digits.length - 1])
-    : null;
-}
+/* ---------------- PUBLIC MARKET CONNECTION ---------------- */
 
 function connectPublicSocket() {
   clearTimeout(state.reconnectTimer);
@@ -77,61 +92,53 @@ function connectPublicSocket() {
     return;
   }
 
+  state.connected = false;
+  state.subscribed = false;
+
   setStatus(
     "marketStatus",
-    "Opening public market connection...",
-    "#ffcc66"
+    "Connecting to public market data...",
+    "#f59e0b"
   );
 
   setStatus(
     "priceStatus",
     "Connecting to live market data...",
-    "#ffcc66"
+    "#f59e0b"
   );
 
   let socket;
 
   try {
     socket = new WebSocket(PUBLIC_WS_URL);
+    state.socket = socket;
   } catch (error) {
-    console.error("WebSocket creation failed:", error);
+    console.error("Could not create market WebSocket:", error);
 
     setStatus(
       "marketStatus",
-      "Could not create market connection.",
-      "#ff687b"
+      "Could not start market connection. Retrying...",
+      "#ef4444"
     );
 
     scheduleReconnect();
     return;
   }
 
-  state.socket = socket;
-  state.connected = false;
-
   state.responseTimer = setTimeout(() => {
-    if (state.socket !== socket) return;
-
-    if (!state.connected) {
+    if (
+      state.socket === socket &&
+      socket.readyState === WebSocket.OPEN &&
+      state.activeSymbols.length === 0
+    ) {
       setStatus(
         "marketStatus",
-        "Connection timed out before opening. Check network access.",
-        "#ff687b"
+        "Connected, but no market list received. Check console for errors.",
+        "#ef4444"
       );
-      return;
-    }
 
-    if (!state.activeSymbols.length) {
-      setStatus(
-        "marketStatus",
-        "Connected, but no market list response arrived.",
-        "#ff687b"
-      );
-    } else if (state.ticks === 0) {
-      setStatus(
-        "priceStatus",
-        "Market list loaded; waiting for the first tick.",
-        "#ffcc66"
+      console.warn(
+        "No active_symbols response received within 12 seconds."
       );
     }
   }, 12000);
@@ -141,18 +148,17 @@ function connectPublicSocket() {
 
     state.connected = true;
 
-    console.log("Tradedollars public WebSocket opened.");
-
     setStatus(
       "marketStatus",
-      "Connected. Requesting available markets...",
-      "#25d695"
+      "Connected. Loading available markets...",
+      "#22c55e"
     );
 
-    socket.send(JSON.stringify({
+    sendJson(socket, {
       active_symbols: "brief",
+      product_type: "basic",
       req_id: ++state.requestId
-    }));
+    });
   });
 
   socket.addEventListener("message", event => {
@@ -163,75 +169,76 @@ function connectPublicSocket() {
     try {
       message = JSON.parse(event.data);
     } catch (error) {
-      console.error("Could not parse market response:", error);
-      setStatus(
-        "marketStatus",
-        "Received an unreadable market response.",
-        "#ff687b"
-      );
+      console.error("Invalid WebSocket response:", event.data);
       return;
     }
-
-    console.log("Deriv public response:", message);
 
     if (message.error) {
-      const description =
-        message.error.message || "Market service error";
+      console.error("Deriv public response error:", message.error);
 
-      setStatus("marketStatus", description, "#ff687b");
+      const errorText =
+        message.error.message ||
+        message.error.code ||
+        "Unknown market-data error";
 
-      if (message.msg_type === "tick") {
-        setStatus("priceStatus", description, "#ff687b");
-      }
+      setStatus(
+        "marketStatus",
+        "Market API error: " + errorText,
+        "#ef4444"
+      );
+
+      setStatus(
+        "priceStatus",
+        "Market data error. See console for details.",
+        "#ef4444"
+      );
 
       return;
     }
 
-    if (Array.isArray(message.active_symbols)) {
+    if (message.msg_type === "active_symbols") {
       clearTimeout(state.responseTimer);
+
       processActiveSymbols(message.active_symbols);
       return;
     }
 
-    if (message.tick) {
+    if (message.msg_type === "tick" && message.tick) {
       processTick(message.tick);
+      return;
+    }
+
+    if (message.subscription && message.msg_type === "forget") {
+      console.log("Subscription ended:", message);
     }
   });
 
   socket.addEventListener("error", event => {
-    if (state.socket !== socket) return;
-
-    console.error("Public WebSocket error:", event);
+    console.error("Public market WebSocket error:", event);
 
     setStatus(
       "marketStatus",
-      "WebSocket error. Check connection or network access.",
-      "#ff687b"
+      "Market connection error. Retrying if disconnected...",
+      "#ef4444"
     );
   });
 
   socket.addEventListener("close", event => {
     if (state.socket !== socket) return;
 
-    console.warn(
-      "Public WebSocket closed:",
-      event.code,
-      event.reason
-    );
-
     state.connected = false;
-    clearTimeout(state.responseTimer);
+    state.subscribed = false;
 
     setStatus(
       "marketStatus",
       `Connection closed (${event.code}). Reconnecting...`,
-      "#ffcc66"
+      "#f59e0b"
     );
 
     setStatus(
       "priceStatus",
       "Market connection closed. Reconnecting...",
-      "#ffcc66"
+      "#f59e0b"
     );
 
     scheduleReconnect();
@@ -242,17 +249,24 @@ function scheduleReconnect() {
   clearTimeout(state.reconnectTimer);
 
   state.reconnectTimer = setTimeout(() => {
-    connectPublicSocket();
-  }, 4000);
+    if (!state.connected) {
+      connectPublicSocket();
+    }
+  }, 3000);
 }
+
+/* ---------------- MARKET LIST ---------------- */
 
 function processActiveSymbols(symbols) {
   if (!Array.isArray(symbols)) {
+    console.error("Invalid active-symbols response:", symbols);
+
     setStatus(
       "marketStatus",
       "Invalid market list response.",
-      "#ff687b"
+      "#ef4444"
     );
+
     return;
   }
 
@@ -268,43 +282,66 @@ function processActiveSymbols(symbols) {
     }))
     .filter(item => item.symbol && item.name);
 
-  const select = $("marketSelect");
+  console.log(
+    "Available markets received:",
+    state.activeSymbols.length
+  );
 
-  if (select && state.activeSymbols.length) {
-    select.innerHTML = "";
-
-    state.activeSymbols.forEach(item => {
-      const option = document.createElement("option");
-      option.value = item.symbol;
-      option.textContent = item.name;
-      select.appendChild(option);
-    });
-
-    const preferred = state.activeSymbols.find(
-      item => item.symbol === state.symbol
-    );
-
-    const selected = preferred || state.activeSymbols[0];
-
-    state.symbol = selected.symbol;
-    state.marketName = selected.name;
-    select.value = state.symbol;
-  }
+  setText(
+    "marketCount",
+    state.activeSymbols.length
+  );
 
   setStatus(
     "marketStatus",
     state.activeSymbols.length
       ? `${state.activeSymbols.length} markets loaded`
-      : "The service returned an empty market list.",
-    state.activeSymbols.length ? "#25d695" : "#ff687b"
+      : "Connected, but no markets were returned.",
+    state.activeSymbols.length ? "#22c55e" : "#ef4444"
   );
 
-  setText("selectedMarket", state.marketName);
+  const marketSelect = $("marketSelect");
+
+  if (marketSelect && state.activeSymbols.length) {
+    const previousSymbol = state.symbol;
+
+    marketSelect.innerHTML = "";
+
+    state.activeSymbols.forEach(market => {
+      const option = document.createElement("option");
+      option.value = market.symbol;
+      option.textContent = market.name;
+      marketSelect.appendChild(option);
+    });
+
+    const preferredMarket = state.activeSymbols.find(
+      market => market.symbol === previousSymbol
+    );
+
+    const firstMarket = state.activeSymbols[0];
+
+    const chosenMarket = preferredMarket || firstMarket;
+
+    marketSelect.value = chosenMarket.symbol;
+
+    state.symbol = chosenMarket.symbol;
+    state.marketName = chosenMarket.name;
+
+    updateSelectedMarket();
+  }
 
   if (state.activeSymbols.length) {
     subscribeToTicks();
+  } else {
+    setStatus(
+      "priceStatus",
+      "No available markets to subscribe to.",
+      "#ef4444"
+    );
   }
 }
+
+/* ---------------- TICK SUBSCRIPTION ---------------- */
 
 function subscribeToTicks() {
   const socket = state.socket;
@@ -313,307 +350,35 @@ function subscribeToTicks() {
     return;
   }
 
-  socket.send(JSON.stringify({
+  state.subscribed = false;
+
+  const sent = sendJson(socket, {
     ticks: state.symbol,
     subscribe: 1,
     req_id: ++state.requestId
-  }));
-
-  setStatus(
-    "priceStatus",
-    `Subscribing to ${state.marketName}...`,
-    "#ffcc66"
-  );
-}
-
-function processTick(tick) {
-  if (!tick || tick.quote === undefined) return;
-
-  if (tick.symbol && tick.symbol !== state.symbol) {
-    return;
-  }
-
-  const price = Number(tick.quote);
-
-  if (!Number.isFinite(price)) return;
-
-  const pipSize = Number.isFinite(Number(tick.pip_size))
-    ? Number(tick.pip_size)
-    : 2;
-
-  const digit = getLastDigit(price, pipSize);
-
-  state.ticks += 1;
-  state.latestPrice = price;
-  state.latestDigit = digit;
-
-  state.priceHistory.push(price);
-
-  if (state.priceHistory.length > 100) {
-    state.priceHistory.shift();
-  }
-
-  if (digit !== null) {
-    state.digitHistory.push(digit);
-
-    if (state.digitHistory.length > 2000) {
-      state.digitHistory.shift();
-    }
-  }
-
-  setText("livePrice", formatPrice(price, pipSize));
-  setText("liveDigit", digit === null ? "--" : String(digit));
-  setText("tickCount", state.ticks.toLocaleString());
-  setText("botStatus", state.monitoring ? "Running" : "Stopped");
-
-  setStatus(
-    "priceStatus",
-    `Live data received for ${state.marketName}`,
-    "#25d695"
-  );
-
-  setStatus(
-    "tickStatus",
-    `Received ${state.ticks.toLocaleString()} ticks this session.`,
-    "#25d695"
-  );
-
-  renderDigitHistory();
-  renderChart();
-  renderDigitAnalysis();
-  updateSignal();
-}
-
-function renderDigitHistory() {
-  const container = $("digitHistory");
-  if (!container) return;
-
-  container.innerHTML = "";
-
-  const recent = state.digitHistory.slice(-30).reverse();
-
-  if (!recent.length) {
-    container.textContent = "Waiting for data...";
-    return;
-  }
-
-  recent.forEach(digit => {
-    const item = document.createElement("span");
-    item.className = "digit";
-    item.textContent = String(digit);
-    container.appendChild(item);
-  });
-}
-
-function renderDigitAnalysis() {
-  const digits = state.digitHistory;
-  const size = digits.length;
-
-  setText("sampleSize", size.toLocaleString());
-
-  if (!size) {
-    setText("mostDigit", "--");
-    setText("evenOdd", "--");
-    setText("overUnder", "--");
-
-    setStatus(
-      "analysisStatus",
-      "Waiting for digit data...",
-      "#ffcc66"
-    );
-    return;
-  }
-
-  const counts = Array(10).fill(0);
-  digits.forEach(digit => counts[digit]++);
-
-  const maximum = Math.max(...counts);
-
-  const most = counts
-    .map((count, digit) => ({ count, digit }))
-    .filter(item => item.count === maximum)
-    .map(item => item.digit)
-    .join(", ");
-
-  const even = digits.filter(d => d % 2 === 0).length;
-  const odd = size - even;
-  const over = digits.filter(d => d > 5).length;
-  const under = digits.filter(d => d < 5).length;
-
-  const percent = count =>
-    `${(count * 100 / size).toFixed(1)}%`;
-
-  setText("mostDigit", `${most} (${percent(maximum)})`);
-  setText("evenOdd", `Even ${percent(even)} / Odd ${percent(odd)}`);
-  setText(
-    "overUnder",
-    `Over 5: ${percent(over)} / Under 5: ${percent(under)}`
-  );
-
-  setStatus(
-    "analysisStatus",
-    `Descriptive statistics from ${size} digits. Historical frequencies do not predict the next digit.`,
-    "#9cafc6"
-  );
-}
-
-function renderChart() {
-  const canvas = $("priceChart");
-  if (!canvas) return;
-
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-
-  const width = canvas.width;
-  const height = canvas.height;
-
-  ctx.clearRect(0, 0, width, height);
-  ctx.fillStyle = "#091626";
-  ctx.fillRect(0, 0, width, height);
-
-  const prices = state.priceHistory;
-
-  if (prices.length < 2) {
-    ctx.fillStyle = "#9cafc6";
-    ctx.font = "16px Arial";
-    ctx.fillText("Waiting for price history...", 20, 35);
-    return;
-  }
-
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const range = max - min || 1;
-  const pad = 18;
-
-  ctx.strokeStyle = "#25d695";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-
-  prices.forEach((price, index) => {
-    const x = pad +
-      index * (width - 2 * pad) / (prices.length - 1);
-
-    const y = height - pad -
-      ((price - min) / range) * (height - 2 * pad);
-
-    if (index === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
   });
 
-  ctx.stroke();
+  if (sent) {
+    setStatus(
+      "priceStatus",
+      `Subscribing to ${state.marketName}...`,
+      "#f59e0b"
+    );
+  }
 }
 
-function updateSignal() {
-  const signal = $("signal");
-  if (!signal) return;
+function changeMarket(symbol) {
+  const market = state.activeSymbols.find(
+    item => item.symbol === symbol
+  );
 
-  setText("signal", "WAIT");
-
-  if (!state.monitoring) {
-    setStatus(
-      "signalReason",
-      "Signal monitor stopped. No orders are placed.",
-      "#9cafc6"
-    );
+  if (!market) {
+    console.warn("Selected market was not found:", symbol);
     return;
   }
 
-  const sample = state.digitHistory.slice(-100);
-
-  if (sample.length < 50) {
-    setStatus(
-      "signalReason",
-      `Collecting data: ${sample.length}/50 digits. Signal remains WAIT.`,
-      "#ffcc66"
-    );
-    return;
-  }
-
-  const strategy = $("testStrategy")?.value || "overunder";
-
-  const first = strategy === "evenodd"
-    ? sample.filter(d => d % 2 === 0).length
-    : sample.filter(d => d > 5).length;
-
-  const second = strategy === "evenodd"
-    ? sample.length - first
-    : sample.filter(d => d < 5).length;
-
-  const firstName = strategy === "evenodd" ? "EVEN" : "OVER 5";
-  const secondName = strategy === "evenodd" ? "ODD" : "UNDER 5";
-
-  setStatus(
-    "signalReason",
-    `${firstName}: ${(first * 100 / sample.length).toFixed(1)}%; ` +
-    `${secondName}: ${(second * 100 / sample.length).toFixed(1)}%. ` +
-    `Historical statistics only. No predictive signal is generated.`,
-    "#ffcc66"
-  );
-}
-
-async function refreshAccount() {
-  setText("accountStatus", "Checking...");
-  setStatus("accountMessage", "Checking demo account status...", "#ffcc66");
-
-  try {
-    const response = await fetch("/api/account", {
-      credentials: "include",
-      headers: { Accept: "application/json" }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Account request returned ${response.status}`);
-    }
-
-    const data = await response.json();
-
-    if (data.connected && data.account) {
-      setText("accountStatus", "Demo connected");
-      setText("accountId", data.account.id || "--");
-      setText(
-        "accountBalance",
-        `${data.account.currency || "USD"} ${formatPrice(data.account.balance)}`
-      );
-
-      setStatus(
-        "accountMessage",
-        "Demo account connected. Real-money trading remains disabled.",
-        "#25d695"
-      );
-    } else {
-      setText("accountStatus", "Not connected");
-      setText("accountId", "--");
-      setText("accountBalance", "--");
-
-      setStatus(
-        "accountMessage",
-        "Log in with Deriv to view your demo account.",
-        "#ffcc66"
-      );
-    }
-  } catch (error) {
-    console.error("Account check failed:", error);
-    setText("accountStatus", "Unavailable");
-
-    setStatus(
-      "accountMessage",
-      "Account check failed. Public market monitoring can work independently.",
-      "#ff687b"
-    );
-  }
-}
-
-function handleMarketChange() {
-  const select = $("marketSelect");
-  if (!select || !select.value) return;
-
-  state.symbol = select.value;
-
-  const selected = state.activeSymbols.find(
-    item => item.symbol === state.symbol
-  );
-
-  state.marketName = selected ? selected.name : state.symbol;
+  state.symbol = market.symbol;
+  state.marketName = market.name;
 
   state.ticks = 0;
   state.latestPrice = null;
@@ -621,122 +386,569 @@ function handleMarketChange() {
   state.digitHistory = [];
   state.priceHistory = [];
 
-  setText("selectedMarket", state.marketName);
-  setText("livePrice", "--");
-  setText("liveDigit", "--");
-  setText("tickCount", "0");
-  setText("tickStatus", "Waiting for ticks.");
-
+  updateSelectedMarket();
   renderDigitHistory();
-  renderChart();
   renderDigitAnalysis();
+  renderChart();
   updateSignal();
-  subscribeToTicks();
+
+  setText("tickCount", 0);
+  setText("livePrice", "Waiting...");
+  setText("liveDigit", "—");
+
+  const socket = state.socket;
+
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    sendJson(socket, {
+      forget_all: "ticks",
+      req_id: ++state.requestId
+    });
+
+    subscribeToTicks();
+  }
 }
 
-function recordObservation() {
-  const strategy = $("testStrategy")?.value || "overunder";
-  const notes = ($("testNotes")?.value || "").trim();
+function updateSelectedMarket() {
+  setText("selectedMarket", state.marketName);
+  setText("marketName", state.marketName);
+}
 
-  const observation = {
-    time: new Date().toLocaleString(),
-    strategy,
-    sample: state.digitHistory.length,
-    price: state.latestPrice,
-    digit: state.latestDigit,
-    notes: notes || "No notes provided."
-  };
+/* ---------------- PROCESS LIVE TICKS ---------------- */
 
-  state.observations.unshift(observation);
+function processTick(tick) {
+  if (!tick || tick.quote === undefined) return;
 
-  if (state.observations.length > 50) {
-    state.observations.pop();
+  const price = Number(tick.quote);
+
+  if (!Number.isFinite(price)) return;
+
+  const pipSize = Number.isInteger(Number(tick.pip_size))
+    ? Number(tick.pip_size)
+    : 2;
+
+  const formattedPrice = price.toFixed(pipSize);
+  const lastCharacter = formattedPrice.slice(-1);
+  const digit = Number(lastCharacter);
+
+  if (!Number.isInteger(digit) || digit < 0 || digit > 9) {
+    console.warn("Could not extract final price digit:", formattedPrice);
+    return;
   }
 
-  setText("recordStatus", `Recorded at ${observation.time}.`);
+  state.connected = true;
+  state.subscribed = true;
+  state.ticks += 1;
 
-  const container = $("observationHistory");
+  state.latestPrice = price;
+  state.latestDigit = digit;
+
+  state.digitHistory.unshift(digit);
+
+  if (state.digitHistory.length > MAX_DIGIT_HISTORY) {
+    state.digitHistory.length = MAX_DIGIT_HISTORY;
+  }
+
+  state.priceHistory.push({
+    price,
+    time: Date.now()
+  });
+
+  if (state.priceHistory.length > MAX_PRICE_HISTORY) {
+    state.priceHistory.shift();
+  }
+
+  setText("livePrice", formattedPrice);
+  setText("latestPrice", formattedPrice);
+  setText("liveDigit", digit);
+  setText("latestDigit", digit);
+  setText("tickCount", state.ticks);
+  setText("ticksReceived", state.ticks);
+
+  setStatus(
+    "priceStatus",
+    `Live data received — ${state.marketName}`,
+    "#22c55e"
+  );
+
+  setStatus(
+    "marketStatus",
+    `${state.activeSymbols.length} markets loaded · Live`,
+    "#22c55e"
+  );
+
+  renderDigitHistory();
+  renderDigitAnalysis();
+  renderChart();
+  updateSignal();
+}
+
+/* ---------------- DIGIT HISTORY ---------------- */
+
+function renderDigitHistory() {
+  const container =
+    $("digitHistory") ||
+    $("recentDigits");
+
   if (!container) return;
 
   container.innerHTML = "";
 
-  state.observations.forEach(item => {
-    const card = document.createElement("div");
-    card.className = "status";
+  if (!state.digitHistory.length) {
+    container.textContent = "Waiting for live digits...";
+    return;
+  }
 
-    const heading = document.createElement("strong");
-    heading.textContent =
-      `${item.time} — ${item.strategy === "evenodd" ? "Even/Odd" : "Over/Under"}`;
+  state.digitHistory.slice(0, 50).forEach(digit => {
+    const item = document.createElement("span");
 
-    const details = document.createElement("p");
-    details.textContent =
-      `Sample: ${item.sample}; price: ${item.price ?? "--"}; ` +
-      `last digit: ${item.digit ?? "--"}. Notes: ${item.notes}`;
+    item.textContent = digit;
+    item.style.display = "inline-flex";
+    item.style.alignItems = "center";
+    item.style.justifyContent = "center";
+    item.style.minWidth = "28px";
+    item.style.minHeight = "28px";
+    item.style.margin = "3px";
+    item.style.borderRadius = "6px";
+    item.style.fontWeight = "700";
+    item.style.background =
+      digit % 2 === 0 ? "#173b32" : "#3b2340";
+    item.style.color =
+      digit % 2 === 0 ? "#86efac" : "#e9a8ff";
 
-    card.append(heading, details);
-    container.appendChild(card);
+    container.appendChild(item);
   });
 }
 
-function startMonitor() {
-  state.monitoring = true;
-  setText("botStatus", "Running");
+/* ---------------- DIGIT ANALYSIS ---------------- */
+
+function renderDigitAnalysis() {
+  const digits = state.digitHistory;
+  const sampleSize = digits.length;
+
+  setText("sampleSize", sampleSize);
+  setText("analysisSampleSize", sampleSize);
+
+  if (!sampleSize) {
+    setText("mostDigit", "—");
+    setText("leastDigit", "—");
+    setText("evenPercent", "—");
+    setText("oddPercent", "—");
+    setText("overFivePercent", "—");
+    setText("underFivePercent", "—");
+
+    setStatus(
+      "analysisStatus",
+      "Waiting for ticks to begin analysis.",
+      "#f59e0b"
+    );
+
+    return;
+  }
+
+  const counts = Array(10).fill(0);
+
+  let evenCount = 0;
+  let oddCount = 0;
+  let overFiveCount = 0;
+  let underFiveCount = 0;
+
+  digits.forEach(digit => {
+    counts[digit] += 1;
+
+    if (digit % 2 === 0) {
+      evenCount += 1;
+    } else {
+      oddCount += 1;
+    }
+
+    if (digit > 5) overFiveCount += 1;
+    if (digit < 5) underFiveCount += 1;
+  });
+
+  const percent = count =>
+    `${((count / sampleSize) * 100).toFixed(1)}%`;
+
+  const maxCount = Math.max(...counts);
+  const minCount = Math.min(...counts);
+
+  const mostDigits = counts
+    .map((count, digit) => ({ digit, count }))
+    .filter(item => item.count === maxCount)
+    .map(item => item.digit)
+    .join(", ");
+
+  const leastDigits = counts
+    .map((count, digit) => ({ digit, count }))
+    .filter(item => item.count === minCount)
+    .map(item => item.digit)
+    .join(", ");
+
+  setText("mostDigit", mostDigits);
+  setText("leastDigit", leastDigits);
+
+  setText("evenPercent", percent(evenCount));
+  setText("oddPercent", percent(oddCount));
+  setText("overFivePercent", percent(overFiveCount));
+  setText("underFivePercent", percent(underFiveCount));
+
+  setText("evenCount", evenCount);
+  setText("oddCount", oddCount);
+  setText("overFiveCount", overFiveCount);
+  setText("underFiveCount", underFiveCount);
 
   setStatus(
-    "appStatus",
-    "Application running — signal-only mode; real-money trading disabled.",
-    "#25d695"
+    "analysisStatus",
+    `Descriptive statistics based on ${sampleSize} observed ticks. These frequencies do not predict the next digit.`,
+    "#94a3b8"
   );
-
-  updateSignal();
 }
 
-function stopMonitor() {
-  state.monitoring = false;
-  setText("botStatus", "Stopped");
+/* ---------------- SIGNAL MONITOR ---------------- */
+
+function updateSignal() {
+  setText("signal", "WAIT");
+  setText("signalValue", "WAIT");
+
+  setText(
+    "signalReason",
+    state.digitHistory.length < 50
+      ? `Collecting data: ${state.digitHistory.length}/50 ticks. No order will be placed.`
+      : "Observation only. Digit frequencies do not reliably predict the next outcome. No order will be placed."
+  );
 
   setStatus(
-    "appStatus",
-    "Signal monitor stopped — real-money trading disabled.",
-    "#ffcc66"
+    "botStatus",
+    state.monitoring
+      ? "SIGNAL-ONLY · MONITORING"
+      : "MONITORING PAUSED",
+    state.monitoring ? "#22c55e" : "#f59e0b"
   );
 
-  updateSignal();
+  const buyButton = $("confirmBuy");
+
+  if (buyButton) {
+    buyButton.disabled = true;
+    buyButton.textContent = "CONFIRM BUY — DISABLED";
+    buyButton.title =
+      "Trading orders are disabled in this signal-only version.";
+  }
 }
+
+/* ---------------- LIVE PRICE CHART ---------------- */
+
+function renderChart() {
+  const canvas =
+    $("priceChart") ||
+    $("chartCanvas") ||
+    $("liveChart");
+
+  if (!canvas || typeof canvas.getContext !== "function") {
+    return;
+  }
+
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  const width = canvas.clientWidth || 600;
+  const height = canvas.clientHeight || 220;
+  const ratio = window.devicePixelRatio || 1;
+
+  if (
+    canvas.width !== Math.round(width * ratio) ||
+    canvas.height !== Math.round(height * ratio)
+  ) {
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+  }
+
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+
+  context.fillStyle = "#0b1220";
+  context.fillRect(0, 0, width, height);
+
+  context.strokeStyle = "#243247";
+  context.lineWidth = 1;
+
+  for (let i = 1; i < 4; i += 1) {
+    const y = (height / 4) * i;
+    context.beginPath();
+    context.moveTo(0, y);
+    context.lineTo(width, y);
+    context.stroke();
+  }
+
+  if (state.priceHistory.length < 2) {
+    context.fillStyle = "#94a3b8";
+    context.font = "13px sans-serif";
+    context.fillText("Waiting for price data...", 12, 24);
+    return;
+  }
+
+  const prices = state.priceHistory.map(item => item.price);
+  const minimum = Math.min(...prices);
+  const maximum = Math.max(...prices);
+  const range = maximum - minimum || 1;
+  const padding = 12;
+
+  context.strokeStyle = "#38bdf8";
+  context.lineWidth = 2;
+  context.beginPath();
+
+  prices.forEach((price, index) => {
+    const x =
+      padding +
+      (index / (prices.length - 1)) * (width - padding * 2);
+
+    const y =
+      height -
+      padding -
+      ((price - minimum) / range) * (height - padding * 2);
+
+    if (index === 0) {
+      context.moveTo(x, y);
+    } else {
+      context.lineTo(x, y);
+    }
+  });
+
+  context.stroke();
+
+  context.fillStyle = "#94a3b8";
+  context.font = "11px sans-serif";
+
+  context.fillText(maximum.toFixed(2), 8, 13);
+  context.fillText(minimum.toFixed(2), 8, height - 4);
+}
+
+/* ---------------- OBSERVATION JOURNAL ---------------- */
+
+function recordObservation(note) {
+  const observation = {
+    time: new Date().toLocaleString(),
+    symbol: state.symbol,
+    price: state.latestPrice,
+    digit: state.latestDigit,
+    ticks: state.ticks,
+    note
+  };
+
+  state.observations.unshift(observation);
+
+  if (state.observations.length > MAX_OBSERVATIONS) {
+    state.observations.length = MAX_OBSERVATIONS;
+  }
+
+  renderObservations();
+}
+
+function renderObservations() {
+  const container =
+    $("observations") ||
+    $("observationJournal");
+
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  if (!state.observations.length) {
+    container.textContent = "No observations recorded yet.";
+    return;
+  }
+
+  state.observations.forEach(item => {
+    const row = document.createElement("div");
+
+    row.style.padding = "8px";
+    row.style.marginBottom = "6px";
+    row.style.borderBottom = "1px solid #263449";
+
+    const line = document.createElement("div");
+    line.textContent =
+      `${item.time} · ${item.symbol} · Price: ${
+        item.price === null ? "—" : item.price
+      } · Digit: ${
+        item.digit === null ? "—" : item.digit
+      } · Ticks: ${item.ticks}`;
+
+    const note = document.createElement("div");
+    note.textContent = item.note;
+    note.style.color = "#94a3b8";
+
+    row.appendChild(line);
+    row.appendChild(note);
+    container.appendChild(row);
+  });
+}
+
+/* ---------------- ACCOUNT STATUS ---------------- */
+
+async function refreshAccount() {
+  setStatus(
+    "accountStatus",
+    "Checking account status...",
+    "#f59e0b"
+  );
+
+  try {
+    const response = await fetch("/api/account", {
+      method: "GET",
+      credentials: "include",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      setStatus(
+        "accountStatus",
+        "Unavailable — login required or account check failed.",
+        "#f59e0b"
+      );
+
+      console.warn("Account check response:", data);
+      return;
+    }
+
+    setStatus(
+      "accountStatus",
+      "Demo account connected",
+      "#22c55e"
+    );
+
+    const account =
+      data.account ||
+      data.data ||
+      data;
+
+    setText(
+      "accountId",
+      account.account_id ||
+      account.loginid ||
+      account.id ||
+      "Connected"
+    );
+
+    const balance =
+      account.balance &&
+      typeof account.balance === "object"
+        ? account.balance.balance
+        : account.balance;
+
+    if (balance !== undefined && balance !== null) {
+      setText("accountBalance", balance);
+      setText("balance", balance);
+    }
+  } catch (error) {
+    console.warn("Account request failed:", error);
+
+    setStatus(
+      "accountStatus",
+      "Account unavailable. Public market monitoring can work independently.",
+      "#f59e0b"
+    );
+  }
+}
+
+/* ---------------- BUTTONS AND EVENTS ---------------- */
 
 function initialise() {
-  setStatus(
-    "appStatus",
-    "Application running — signal-only mode; real-money trading disabled.",
-    "#25d695"
-  );
+  const marketSelect = $("marketSelect");
 
-  $("refreshAccount")?.addEventListener("click", refreshAccount);
-  $("marketSelect")?.addEventListener("change", handleMarketChange);
-  $("startMonitor")?.addEventListener("click", startMonitor);
-  $("stopMonitor")?.addEventListener("click", stopMonitor);
-  $("recordObservation")?.addEventListener("click", recordObservation);
-  $("testStrategy")?.addEventListener("change", updateSignal);
+  if (marketSelect) {
+    marketSelect.addEventListener("change", event => {
+      changeMarket(event.target.value);
+    });
+  }
 
-  $("loginButton")?.addEventListener("click", () => {
-    window.location.href = "/auth/deriv";
-  });
+  const loginButton = $("loginButton");
 
-  $("openDeriv")?.addEventListener("click", () => {
-    window.open("https://deriv.com/", "_blank", "noopener");
-  });
+  if (loginButton) {
+    loginButton.addEventListener("click", () => {
+      window.location.href = "/login";
+    });
+  }
+
+  const openDeriv = $("openDeriv");
+
+  if (openDeriv) {
+    openDeriv.addEventListener("click", () => {
+      window.open(
+        "https://deriv.com/",
+        "_blank",
+        "noopener,noreferrer"
+      );
+    });
+  }
+
+  const startButton =
+    $("startBot") ||
+    $("startMonitoring");
+
+  if (startButton) {
+    startButton.addEventListener("click", () => {
+      state.monitoring = true;
+      updateSignal();
+
+
+      recordObservation(
+        "Signal monitoring started. No orders placed."
+      );
+    });
+  }
+
+  const stopButton =
+    $("stopBot") ||
+    $("stopMonitoring");
+
+  if (stopButton) {
+    stopButton.addEventListener("click", () => {
+      state.monitoring = false;
+      updateSignal();
+
+      recordObservation(
+        "Signal monitoring paused. No orders placed."
+      );
+    });
+  }
+
+  const confirmBuy = $("confirmBuy");
+
+  if (confirmBuy) {
+    confirmBuy.disabled = true;
+    confirmBuy.textContent = "CONFIRM BUY — DISABLED";
+
+    confirmBuy.addEventListener("click", event => {
+      event.preventDefault();
+
+      recordObservation(
+        "Order attempt blocked: trading is disabled in this version."
+      );
+    });
+  }
+
+  window.addEventListener("resize", renderChart);
 
   renderChart();
   renderDigitHistory();
   renderDigitAnalysis();
+  renderObservations();
   updateSignal();
+
   refreshAccount();
   connectPublicSocket();
+
+  console.log("Tradedollars signal-only script initialized.");
+  console.log("Real-money trading: DISABLED.");
+  console.log("Automatic order placement: DISABLED.");
 }
 
 if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initialise, { once: true });
+  document.addEventListener("DOMContentLoaded", initialise);
 } else {
   initialise();
-     }
-   
+}
+
+  
