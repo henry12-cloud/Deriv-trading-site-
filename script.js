@@ -12,7 +12,7 @@
 // Public testing app ID for the legacy Deriv WebSocket API.
 // This is NOT your OAuth client ID or trading authorization.
 const PUBLIC_WS_URL =
-  "wss://ws.derivws.com/websockets/v3?app_id=1089";
+  "wss://api.derivws.com/trading/v1/options/ws/public";
 
 const DEFAULT_SYMBOL = "1HZ100V";
 const DEFAULT_MARKET_NAME = "Volatility 100 (1s) Index";
@@ -154,11 +154,10 @@ function connectPublicSocket() {
       "#22c55e"
     );
 
-    sendJson(socket, {
-      active_symbols: "brief",
-      product_type: "basic",
-      req_id: ++state.requestId
-    });
+sendJson(socket, {
+  active_symbols: "brief",
+  req_id: ++state.requestId
+});
   });
 
   socket.addEventListener("message", event => {
