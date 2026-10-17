@@ -1203,6 +1203,11 @@ if (account.account_type === "demo") {
 /* ---------------- BUTTONS AND EVENTS ---------------- */
 
 function initialise() {
+     const quoteButton = $("requestQuote");
+
+  if (quoteButton) {
+    quoteButton.addEventListener("click", requestDemoQuote);
+  }
   const marketSelect = $("marketSelect");
 
   if (marketSelect) {
