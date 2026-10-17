@@ -30,6 +30,11 @@ const state = {
   responseTimer: null,
   requestId: 0,
 
+  // Demo quote tracking — no purchases
+  tradeRequestId: 0,
+  pendingProposalReqId: null,
+  latestProposal: null,
+
   connected: false,
   monitoring: true,
   subscribed: false,
