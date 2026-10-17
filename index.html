@@ -403,6 +403,78 @@
       <p>The chart shows received prices; it does not predict future prices.</p>
     </section>
 
+    <!-- DEMO QUOTE CONTROLS: NO ORDERS -->
+    <section class="panel" id="demoTradePanel">
+      <div class="section-kicker">Demo testing</div>
+      <h2>Contract Quote</h2>
+
+      <div id="quoteStatus" class="status" role="status">
+        Ready to request a demo quote. No order will be placed.
+      </div>
+
+      <label for="tradeAmount">Stake (USD)</label>
+      <select id="tradeAmount">
+        <option value="1" selected>$1.00</option>
+        <option value="2">$2.00</option>
+        <option value="5">$5.00</option>
+      </select>
+
+      <label for="tradeContractType">Contract type</label>
+      <select id="tradeContractType">
+        <option value="DIGITOVER">Digits Over</option>
+        <option value="DIGITUNDER">Digits Under</option>
+        <option value="DIGITEVEN">Digits Even</option>
+        <option value="DIGITODD">Digits Odd</option>
+      </select>
+
+      <label for="tradeBarrier">Barrier (Over / Under only)</label>
+      <select id="tradeBarrier">
+        <option value="0">0</option>
+        <option value="1">1</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+        <option value="4">4</option>
+        <option value="5" selected>5</option>
+        <option value="6">6</option>
+        <option value="7">7</option>
+        <option value="8">8</option>
+        <option value="9">9</option>
+      </select>
+
+      <label for="tradeDuration">Duration</label>
+      <select id="tradeDuration">
+        <option value="1">1 tick</option>
+        <option value="2">2 ticks</option>
+        <option value="5" selected>5 ticks</option>
+        <option value="10">10 ticks</option>
+      </select>
+
+      <button id="requestQuote" class="primary" type="button">
+        REQUEST DEMO QUOTE
+      </button>
+
+      <div class="grid" style="margin-top:10px">
+        <div class="metric">
+          <div class="metric-label">Quoted stake</div>
+          <div id="quoteStake" class="metric-value">--</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Potential payout</div>
+          <div id="quotePayout" class="metric-value">--</div>
+        </div>
+      </div>
+
+      <p id="quoteDetails">
+        A quote is an estimate from Deriv, not a purchase.
+      </p>
+
+      <p class="buy-note">
+        Demo quotes only. No contract will be purchased by this button.
+        Real-money trading remains disabled.
+      </p>
+    </section>
+    <!-- END DEMO QUOTE CONTROLS -->
+  
     <section class="panel">
       <div class="section-kicker">Analysis and action</div>
       <h2>Digits Analysis &amp; Signal</h2>
