@@ -980,6 +980,153 @@ async function connectTradingSocket() {
   }
 }
 
+/* ---------------- DEMO QUOTE REQUEST ---------------- */
+
+function requestDemoQuote() {
+  const socket = state.tradingSocket;
+
+  if (
+    !state.tradingConnected ||
+    !socket ||
+    socket.readyState !== WebSocket.OPEN
+  ) {
+    setStatus(
+      "quoteStatus",
+      "Demo connection is not ready. Refresh your demo account connection and try again.",
+      "#ef4444"
+    );
+    return;
+  }
+
+  const amountElement = $("tradeAmount");
+  const typeElement = $("tradeContractType");
+  const barrierElement = $("tradeBarrier");
+  const durationElement = $("tradeDuration");
+
+  if (
+    !amountElement ||
+    !typeElement ||
+    !durationElement
+  ) {
+    setStatus(
+      "quoteStatus",
+      "Quote controls are missing. Check the Contract Quote panel in index.html.",
+      "#ef4444"
+    );
+    return;
+  }
+
+  const amount = Number(amountElement.value);
+  const contractType = typeElement.value;
+  const duration = Number(durationElement.value);
+
+  if (![1, 2, 5].includes(amount)) {
+    setStatus("quoteStatus", "Choose a valid stake.", "#ef4444");
+    return;
+  }
+
+  if (![1, 2, 5, 10].includes(duration)) {
+    setStatus("quoteStatus", "Choose a valid duration.", "#ef4444");
+    return;
+  }
+
+  const allowedTypes = [
+    "DIGITOVER",
+    "DIGITUNDER",
+    "DIGITEVEN",
+    "DIGITODD"
+  ];
+
+  if (!allowedTypes.includes(contractType)) {
+    setStatus(
+      "quoteStatus",
+      "Choose a supported digit contract type.",
+      "#ef4444"
+    );
+    return;
+  }
+
+  const payload = {
+    proposal: 1,
+    amount: amount,
+    basis: "stake",
+    contract_type: contractType,
+    currency: "USD",
+    duration: duration,
+    duration_unit: "t",
+    underlying_symbol: state.symbol,
+    req_id: ++state.tradeRequestId
+  };
+
+  if (
+    contractType === "DIGITOVER" ||
+    contractType === "DIGITUNDER"
+  ) {
+    if (!barrierElement) {
+      setStatus(
+        "quoteStatus",
+        "The barrier selector is missing.",
+        "#ef4444"
+      );
+      return;
+    }
+
+    const barrier = Number(barrierElement.value);
+
+    if (
+      !Number.isInteger(barrier) ||
+      barrier < 0 ||
+      barrier > 9 ||
+      (
+        contractType === "DIGITOVER" &&
+        barrier > 8
+      ) ||
+      (
+        contractType === "DIGITUNDER" &&
+        barrier < 1
+      )
+    ) {
+      setStatus(
+        "quoteStatus",
+        "Choose a valid barrier for this contract.",
+        "#ef4444"
+      );
+      return;
+    }
+
+    payload.barrier = String(barrier);
+  }
+
+  state.pendingProposalReqId = payload.req_id;
+  state.latestProposal = null;
+
+  setText("quoteStake", "--");
+  setText("quotePayout", "--");
+
+  setStatus(
+    "quoteStatus",
+    "Requesting demo quote...",
+    "#f59e0b"
+  );
+
+  setText(
+    "quoteDetails",
+    "Waiting for a quote from Deriv. No contract will be purchased."
+  );
+
+  const sent = sendJson(socket, payload);
+
+  if (!sent) {
+    state.pendingProposalReqId = null;
+
+    setStatus(
+      "quoteStatus",
+      "Could not send the quote request. Check the demo connection.",
+      "#ef4444"
+    );
+  }
+   }
+   
 /* ---------------- ACCOUNT STATUS ---------------- */
 
 async function refreshAccount() {
