@@ -442,12 +442,30 @@ app.get(
         });
       }
 
-      // Only return the demo connection URL.
-      if (!wsUrl.startsWith("wss://api.derivws.com/")) {
+
+      // Enforce the exact demo WebSocket endpoint.
+      let parsedWsUrl;
+
+      try {
+        parsedWsUrl = new URL(wsUrl);
+      } catch {
         return res.status(502).json({
-          error: "Unexpected trading WebSocket URL."
+          error: "Invalid trading WebSocket URL."
         });
       }
+
+      if (
+        parsedWsUrl.protocol !== "wss:" ||
+        parsedWsUrl.hostname !== "api.derivws.com" ||
+        parsedWsUrl.pathname !==
+          "/trading/v1/options/ws/demo" ||
+        !parsedWsUrl.searchParams.has("otp")
+      ) {
+        return res.status(403).json({
+          error: "Only authenticated demo trading is permitted."
+        });
+     }
+   
 
       if (wsUrl.includes("/real")) {
         return res.status(403).json({
