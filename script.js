@@ -846,29 +846,113 @@ async function connectTradingSocket() {
       console.log("Authenticated demo trading socket connected.");
     });
 
-    socket.addEventListener("message", event => {
+        socket.addEventListener("message", event => {
       if (state.tradingSocket !== socket) return;
 
       try {
         const message = JSON.parse(event.data);
 
-        // Connection test only: do not send orders.
         if (message.error) {
-          console.warn(
-            "Demo trading socket response error:",
-            message.error.message || message.error.code
-          );
-        } else {
-          console.log(
-            "Demo trading socket message:",
-            message.msg_type || "response received"
-          );
+          const errorText =
+            message.error.message ||
+            message.error.code ||
+            "Unknown demo API error";
+
+          console.warn("Demo API error:", errorText);
+
+          if (
+            message.req_id === state.pendingProposalReqId
+          ) {
+            state.pendingProposalReqId = null;
+            state.latestProposal = null;
+
+            setStatus(
+              "quoteStatus",
+              "Quote failed: " + errorText,
+              "#ef4444"
+            );
+
+            setText("quoteStake", "--");
+            setText("quotePayout", "--");
+          }
+
+          return;
         }
-      } catch {
-        console.warn("Received an unreadable socket response.");
+
+        if (
+          message.msg_type === "proposal" &&
+          message.proposal
+        ) {
+          if (
+            message.req_id !== state.pendingProposalReqId
+          ) {
+            console.log("Unmatched proposal response ignored.");
+            return;
+          }
+
+          const proposal = message.proposal;
+          const askPrice = Number(proposal.ask_price);
+          const payout = Number(proposal.payout);
+
+          if (
+            !proposal.id ||
+            !Number.isFinite(askPrice) ||
+            !Number.isFinite(payout)
+          ) {
+            state.pendingProposalReqId = null;
+            state.latestProposal = null;
+
+            setStatus(
+              "quoteStatus",
+              "The quote response was incomplete. Please request another quote.",
+              "#ef4444"
+            );
+
+            return;
+          }
+
+          state.latestProposal = {
+            id: proposal.id,
+            askPrice,
+            payout,
+            receivedAt: Date.now(),
+            symbol: state.symbol
+          };
+
+          state.pendingProposalReqId = null;
+
+          setText("quoteStake", askPrice.toFixed(2));
+          setText("quotePayout", payout.toFixed(2));
+
+          setStatus(
+            "quoteStatus",
+            "Demo quote received. No contract purchased.",
+            "#22c55e"
+          );
+
+          const details = $("quoteDetails");
+
+          if (details) {
+            details.textContent =
+              proposal.longcode ||
+              "Quote received from Deriv. This is an estimate, not a purchase.";
+          }
+
+          console.log("Demo quote received. No order placed.");
+          return;
+        }
+
+        console.log(
+          "Demo trading socket message:",
+          message.msg_type || "response received"
+        );
+      } catch (error) {
+        console.warn(
+          "Could not process demo socket response:",
+          error
+        );
       }
     });
-
     socket.addEventListener("error", () => {
       console.warn("Demo trading socket connection error.");
     });
