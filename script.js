@@ -967,6 +967,12 @@ function initialise() {
   refreshAccount();
   connectPublicSocket();
 
+const appStatus = $("appStatus");
+
+if (appStatus) {
+  appStatus.textContent = "Application running";
+         }
+                                  
   console.log("Tradedollars signal-only script initialized.");
   console.log("Real-money trading: DISABLED.");
   console.log("Automatic order placement: DISABLED.");
