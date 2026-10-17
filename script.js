@@ -520,88 +520,78 @@ function renderDigitHistory() {
 
 /* ---------------- DIGIT ANALYSIS ---------------- */
 
+
 function renderDigitAnalysis() {
   const digits = state.digitHistory;
   const sampleSize = digits.length;
 
   setText("sampleSize", sampleSize);
-  setText("analysisSampleSize", sampleSize);
 
-  if (!sampleSize) {
-    setText("mostDigit", "—");
-    setText("leastDigit", "—");
-    setText("evenPercent", "—");
-    setText("oddPercent", "—");
-    setText("overFivePercent", "—");
-    setText("underFivePercent", "—");
+  if (sampleSize === 0) {
+    setText("mostDigit", "--");
+    setText("evenOdd", "--");
+    setText("overUnder", "--");
 
     setStatus(
       "analysisStatus",
       "Waiting for ticks to begin analysis.",
       "#f59e0b"
     );
-
     return;
   }
 
   const counts = Array(10).fill(0);
-
   let evenCount = 0;
   let oddCount = 0;
   let overFiveCount = 0;
   let underFiveCount = 0;
+  let equalFiveCount = 0;
 
   digits.forEach(digit => {
-    counts[digit] += 1;
+    counts[digit]++;
 
     if (digit % 2 === 0) {
-      evenCount += 1;
+      evenCount++;
     } else {
-      oddCount += 1;
+      oddCount++;
     }
 
-    if (digit > 5) overFiveCount += 1;
-    if (digit < 5) underFiveCount += 1;
+    if (digit > 5) overFiveCount++;
+    else if (digit < 5) underFiveCount++;
+    else equalFiveCount++;
   });
 
   const percent = count =>
-    `${((count / sampleSize) * 100).toFixed(1)}%`;
+    ((count / sampleSize) * 100).toFixed(1) + "%";
 
   const maxCount = Math.max(...counts);
-  const minCount = Math.min(...counts);
 
   const mostDigits = counts
-    .map((count, digit) => ({ digit, count }))
+    .map((count, digit) => ({ count, digit }))
     .filter(item => item.count === maxCount)
     .map(item => item.digit)
     .join(", ");
 
-  const leastDigits = counts
-    .map((count, digit) => ({ digit, count }))
-    .filter(item => item.count === minCount)
-    .map(item => item.digit)
-    .join(", ");
-
   setText("mostDigit", mostDigits);
-  setText("leastDigit", leastDigits);
 
-  setText("evenPercent", percent(evenCount));
-  setText("oddPercent", percent(oddCount));
-  setText("overFivePercent", percent(overFiveCount));
-  setText("underFivePercent", percent(underFiveCount));
+  setText(
+    "evenOdd",
+    `${percent(evenCount)} / ${percent(oddCount)}`
+  );
 
-  setText("evenCount", evenCount);
-  setText("oddCount", oddCount);
-  setText("overFiveCount", overFiveCount);
-  setText("underFiveCount", underFiveCount);
+  setText(
+    "overUnder",
+    `${percent(overFiveCount)} / ${percent(underFiveCount)}`
+  );
 
   setStatus(
     "analysisStatus",
-    `Descriptive statistics based on ${sampleSize} observed ticks. These frequencies do not predict the next digit.`,
+    `Based on ${sampleSize} observed ticks. Digit 5 occurred ${equalFiveCount} times and is excluded from both Over 5 and Under 5. These statistics do not predict the next digit.`,
     "#94a3b8"
   );
 }
 
+      
 /* ---------------- SIGNAL MONITOR ---------------- */
 
 function updateSignal() {
@@ -743,8 +733,7 @@ function recordObservation(note) {
 
 function renderObservations() {
   const container =
-    $("observations") ||
-    $("observationJournal");
+$("observationHistory");
 
   if (!container) return;
 
@@ -882,9 +871,7 @@ function initialise() {
     });
   }
 
-  const startButton =
-    $("startBot") ||
-    $("startMonitoring");
+  const startButton = $("startMonitor");
 
   if (startButton) {
     startButton.addEventListener("click", () => {
@@ -898,9 +885,7 @@ function initialise() {
     });
   }
 
-  const stopButton =
-    $("stopBot") ||
-    $("stopMonitoring");
+  const stopButton = $("stopMonitor");
 
   if (stopButton) {
     stopButton.addEventListener("click", () => {
@@ -928,6 +913,49 @@ function initialise() {
     });
   }
 
+  const refreshButton = $("refreshAccount");
+
+  if (refreshButton) {
+    refreshButton.addEventListener("click", refreshAccount);
+  }
+
+  const recordButton = $("recordObservation");
+
+  if (recordButton) {
+    recordButton.addEventListener("click", () => {
+      const strategy = $("testStrategy");
+      const notes = $("testNotes");
+      const recordStatus = $("recordStatus");
+
+      const strategyName = strategy
+        ? strategy.options[strategy.selectedIndex].text
+        : "Unspecified strategy";
+
+      const noteText = notes
+        ? notes.value.trim()
+        : "";
+
+      if (!noteText) {
+        if (recordStatus) {
+          recordStatus.textContent =
+            "Please enter your observation notes first.";
+        }
+        return;
+      }
+
+      recordObservation(
+        strategyName + ": " + noteText
+      );
+
+      if (notes) notes.value = "";
+
+      if (recordStatus) {
+        recordStatus.textContent =
+          "Observation recorded for this session.";
+      }
+    });
+}
+                                 
   window.addEventListener("resize", renderChart);
 
   renderChart();
