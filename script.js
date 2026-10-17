@@ -386,7 +386,23 @@ function changeMarket(symbol) {
 
   state.symbol = market.symbol;
   state.marketName = market.name;
+  // Invalidate the previous quote whenever the market changes.
+  state.pendingProposalReqId = null;
+  state.latestProposal = null;
 
+  setText("quoteStake", "--");
+  setText("quotePayout", "--");
+
+  setStatus(
+    "quoteStatus",
+    "Market changed. Request a fresh demo quote.",
+    "#f59e0b"
+  );
+
+  setText(
+    "quoteDetails",
+    "Request a new quote for the selected market. No contract will be purchased."
+  );
   state.ticks = 0;
   state.latestPrice = null;
   state.latestDigit = null;
