@@ -23,6 +23,9 @@ const MAX_OBSERVATIONS = 100;
 
 const state = {
   socket: null,
+     tradingSocket: null,
+  tradingConnecting: false,
+  tradingConnected: false,
   reconnectTimer: null,
   responseTimer: null,
   requestId: 0,
@@ -769,6 +772,125 @@ $("observationHistory");
   });
 }
 
+/* ---------------- DEMO TRADING SOCKET ---------------- */
+
+async function connectTradingSocket() {
+  const existing = state.tradingSocket;
+
+  if (
+    existing &&
+    (
+      existing.readyState === WebSocket.OPEN ||
+      existing.readyState === WebSocket.CONNECTING
+    )
+  ) {
+    return;
+  }
+
+  if (state.tradingConnecting) return;
+
+  state.tradingConnecting = true;
+
+  try {
+    const response = await fetch("/api/trading-connection", {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+      headers: { Accept: "application/json" }
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || !data.connected) {
+      throw new Error(
+        data.error || "Could not obtain demo connection."
+      );
+    }
+
+    // Accept only the exact authenticated demo endpoint.
+    const url = new URL(data.ws_url);
+
+    if (
+      data.account_type !== "demo" ||
+      data.real_trading_enabled !== false ||
+      url.protocol !== "wss:" ||
+      url.hostname !== "api.derivws.com" ||
+      url.pathname !== "/trading/v1/options/ws/demo" ||
+      !url.searchParams.has("otp")
+    ) {
+      throw new Error(
+        "Demo-only connection verification failed."
+      );
+    }
+
+    const socket = new WebSocket(data.ws_url);
+    state.tradingSocket = socket;
+
+    socket.addEventListener("open", () => {
+      if (state.tradingSocket !== socket) return;
+
+      state.tradingConnected = true;
+      state.tradingConnecting = false;
+
+      setStatus(
+        "accountStatus",
+        "Demo account connected · trading socket ready",
+        "#22c55e"
+      );
+
+      console.log("Authenticated demo trading socket connected.");
+    });
+
+    socket.addEventListener("message", event => {
+      if (state.tradingSocket !== socket) return;
+
+      try {
+        const message = JSON.parse(event.data);
+
+        // Connection test only: do not send orders.
+        if (message.error) {
+          console.warn(
+            "Demo trading socket response error:",
+            message.error.message || message.error.code
+          );
+        } else {
+          console.log(
+            "Demo trading socket message:",
+            message.msg_type || "response received"
+          );
+        }
+      } catch {
+        console.warn("Received an unreadable socket response.");
+      }
+    });
+
+    socket.addEventListener("error", () => {
+      console.warn("Demo trading socket connection error.");
+    });
+
+    socket.addEventListener("close", () => {
+      if (state.tradingSocket !== socket) return;
+
+      state.tradingSocket = null;
+      state.tradingConnected = false;
+      state.tradingConnecting = false;
+
+      console.warn("Demo trading socket closed.");
+    });
+
+  } catch (error) {
+    state.tradingConnected = false;
+    state.tradingSocket = null;
+
+    console.warn(
+      "Demo trading connection unavailable:",
+      error.message
+    );
+  } finally {
+    state.tradingConnecting = false;
+  }
+}
+
 /* ---------------- ACCOUNT STATUS ---------------- */
 
 async function refreshAccount() {
@@ -810,7 +932,9 @@ async function refreshAccount() {
       data.account ||
       data.data ||
       data;
-
+if (account.account_type === "demo") {
+  connectTradingSocket();
+}
     setText(
       "accountId",
       account.account_id ||
