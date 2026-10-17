@@ -281,33 +281,77 @@
   </header>
 
   <main>
-    <section class="panel">
-      <div class="section-kicker">Account overview</div>
-      <h2>My Trading Account</h2>
-      <div class="grid">
-        <div class="metric">
-          <div class="metric-label">Connection</div>
-          <div id="accountStatus" class="metric-value">Checking...</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">Account ID</div>
-          <div id="accountId" class="metric-value">--</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">Balance</div>
-          <div id="accountBalance" class="metric-value">--</div>
-        </div>
-        <div class="metric">
-          <div class="metric-label">Trading mode</div>
-          <div class="metric-value">Demo only</div>
-        </div>
-      </div>
-      <p id="accountMessage">Checking demo account status.</p>
+    
+<section class="panel">
+  <div class="section-kicker">Account overview</div>
+  <h2>My Trading Account</h2>
+
+  <div class="grid">
+    <div class="metric">
+      <div class="metric-label">Connection</div>
+      <div id="accountStatus" class="metric-value">Checking...</div>
+    </div>
+
+    <div class="metric">
+      <div class="metric-label">Account ID</div>
+      <div id="accountId" class="metric-value">--</div>
+    </div>
+
+    <div class="metric">
+      <div class="metric-label">Balance</div>
+      <div id="accountBalance" class="metric-value">--</div>
+    </div>
+
+    <div class="metric">
+      <div class="metric-label">Trading mode</div>
+      <div id="tradingMode" class="metric-value">Demo only</div>
+    </div>
+  </div>
+
+  <label for="accountMode">Select account</label>
+  <select id="accountMode">
+    <option value="demo" selected>Demo Account</option>
+    <option value="real" disabled>Real Account — Trading Disabled</option>
+  </select>
+
+  <div id="accountMessage" class="status" style="margin-top:10px">
+    Checking demo account status.
+  </div>
+
+  <div class="grid" style="margin-top:10px">
+    <div>
       <button id="loginButton" class="primary">Login with Deriv</button>
+    </div>
+    <div>
       <button id="refreshAccount" class="secondary">Refresh Account</button>
-      <button id="openDeriv" class="secondary">Open Deriv</button>
-      <p>Real-money trading is disabled. Manage deposits only through the official Deriv website.</p>
-    </section>
+    </div>
+    <div>
+      <button
+        id="depositButton"
+        class="secondary"
+        type="button"
+        onclick="window.open('https://app.deriv.com/cashier/deposit','_blank','noopener,noreferrer')"
+      >Deposit Funds</button>
+    </div>
+    <div>
+      <button
+        id="withdrawButton"
+        class="secondary"
+        type="button"
+        onclick="window.open('https://app.deriv.com/cashier/withdraw','_blank','noopener,noreferrer')"
+      >Withdraw Funds</button>
+    </div>
+  </div>
+
+  <button id="openDeriv" class="secondary">Open Deriv</button>
+
+  <p>
+    Demo mode is selected. Real-money trading and order placement remain
+    disabled. Deposit and withdrawal requests are handled by Deriv, not
+    by Tradedollars.
+  </p>
+</section>
+    
 
     <section class="panel">
       <div class="section-kicker">Market selection</div>
