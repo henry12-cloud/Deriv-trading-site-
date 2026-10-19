@@ -372,26 +372,66 @@ app.get("/api/session", (req, res) => {
 
 /* ---------------- DEMO ACCOUNT ---------------- */
 
+
 app.get("/api/account", requireLogin, async (req, res) => {
   res.set("Cache-Control", "no-store");
 
   try {
-    const account = await getDemoAccount(req);
+    const requestedMode =
+      String(req.query.mode || "demo").toLowerCase();
 
-    req.session.save(error => {
-      if (error) {
-        console.error("Account session save error:", error);
-      }
-
-      res.json({
-        connected: true,
-        account
+    if (!["demo", "real"].includes(requestedMode)) {
+      return res.status(400).json({
+        error: "Invalid account mode."
       });
+    }
+
+    if (
+      requestedMode === "real" &&
+      !ENABLE_REAL_TRADING
+    ) {
+      return res.status(403).json({
+        error: "Real-account access is not enabled yet."
+      });
+    }
+
+    const result = await derivRequest(
+      `${DERIV_API}/trading/v1/options/accounts`,
+      {
+        method: "GET",
+        headers: bearerHeaders(req)
+      }
+    );
+
+    const accounts = accountListFromResponse(result);
+
+    const selected = accounts.find(account =>
+      String(account.account_type || "").toLowerCase() === requestedMode
+    );
+
+    if (!selected) {
+      return res.status(404).json({
+        error: `No ${requestedMode} Options account was found.`
+      });
+    }
+
+    const account = normalizeAccount(selected);
+
+    res.json({
+      connected: true,
+      account: {
+        account_id: account.id,
+        account_type: account.account_type,
+        balance: account.balance,
+        currency: account.currency,
+        status: account.status
+      }
     });
   } catch (error) {
     sendApiError(res, error);
   }
 });
+   
 
 /* -------- TEMPORARY ACCOUNT VERIFICATION -------- */
 
