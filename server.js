@@ -393,6 +393,43 @@ app.get("/api/account", requireLogin, async (req, res) => {
   }
 });
 
+/* -------- TEMPORARY ACCOUNT VERIFICATION -------- */
+
+app.get("/api/accounts-check", requireLogin, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+
+  try {
+    const result = await derivRequest(
+      `${DERIV_API}/trading/v1/options/accounts`,
+      {
+        method: "GET",
+        headers: bearerHeaders(req)
+      }
+    );
+
+    const accounts = accountListFromResponse(result);
+
+    res.json({
+      verified: true,
+      count: accounts.length,
+      accounts: accounts.map(account => {
+        const normalized = normalizeAccount(account);
+
+        return {
+          account_type: normalized.account_type,
+          currency: normalized.currency,
+          status: normalized.status,
+          account_id: normalized.id
+            ? "..." + normalized.id.slice(-4)
+            : null
+        };
+      })
+    });
+  } catch (error) {
+    sendApiError(res, error);
+  }
+});
+       
 /* ---------------- ACCOUNT STATUS ---------------- */
 
 app.get("/account-status", requireLogin, async (req, res) => {
