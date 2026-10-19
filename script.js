@@ -1174,19 +1174,33 @@ async function refreshAccount() {
       return;
     }
 
+
+    const account =
+      data.account ||
+      data.data ||
+      data;
+
+    if (
+      String(account.account_type || "").toLowerCase() !== "demo"
+    ) {
+      setStatus(
+        "accountStatus",
+        "Account type could not be verified.",
+        "#f59e0b"
+      );
+
+      console.warn("Unexpected account type:", account);
+      return;
+    }
+
     setStatus(
       "accountStatus",
       "Demo account connected",
       "#22c55e"
     );
 
-    const account =
-      data.account ||
-      data.data ||
-      data;
-if (account.account_type === "demo") {
-  connectTradingSocket();
-}
+    connectTradingSocket();
+
     setText(
       "accountId",
       account.account_id ||
