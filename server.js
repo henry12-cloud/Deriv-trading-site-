@@ -429,6 +429,104 @@ app.get("/api/accounts-check", requireLogin, async (req, res) => {
     sendApiError(res, error);
   }
 });
+ 
+/* -------- REAL ACCOUNT CONNECTION CHECK -------- */
+
+app.get(
+  "/api/real-connection-check",
+  requireLogin,
+  async (req, res) => {
+    res.set("Cache-Control", "no-store");
+
+    try {
+      const result = await derivRequest(
+        `${DERIV_API}/trading/v1/options/accounts`,
+        {
+          method: "GET",
+          headers: bearerHeaders(req)
+        }
+      );
+
+      const accounts = accountListFromResponse(result);
+
+      const realAccount = accounts.find(account =>
+        String(account.account_type || "").toLowerCase() === "real"
+      );
+
+      if (!realAccount) {
+        return res.status(404).json({
+          verified: false,
+          error: "No real Options trading account was found."
+        });
+      }
+
+      const account = normalizeAccount(realAccount);
+
+      if (!account.id) {
+        return res.status(400).json({
+          verified: false,
+          error: "Real account ID is missing."
+        });
+      }
+
+      const otpResult = await derivRequest(
+        `${DERIV_API}/trading/v1/options/accounts/${encodeURIComponent(account.id)}/otp`,
+        {
+          method: "POST",
+          headers: bearerHeaders(req)
+        }
+      );
+
+      const data = otpResult?.data || otpResult;
+      const wsUrl = data.url || data.ws_url || null;
+
+      if (!wsUrl) {
+        return res.status(502).json({
+          verified: false,
+          error: "Deriv did not return a WebSocket URL."
+        });
+      }
+
+      let parsedUrl;
+
+      try {
+        parsedUrl = new URL(wsUrl);
+      } catch {
+        return res.status(502).json({
+          verified: false,
+          error: "Invalid WebSocket URL."
+        });
+      }
+
+      const validRealUrl =
+        parsedUrl.protocol === "wss:" &&
+        parsedUrl.hostname === "api.derivws.com" &&
+        parsedUrl.pathname === "/trading/v1/options/ws/real" &&
+        parsedUrl.searchParams.has("otp");
+
+      if (!validRealUrl) {
+        return res.status(403).json({
+          verified: false,
+          error: "Deriv did not return the expected real-account endpoint."
+        });
+      }
+
+      res.json({
+        verified: true,
+        account_type: "real",
+        account_id: "..." + account.id.slice(-4),
+        currency: account.currency,
+        status: account.status,
+        real_endpoint_verified: true,
+        socket_opened: false,
+        order_placed: false,
+        real_trading_enabled: ENABLE_REAL_TRADING
+      });
+    } catch (error) {
+      sendApiError(res, error);
+    }
+  }
+);
        
 /* ---------------- ACCOUNT STATUS ---------------- */
 
