@@ -38,8 +38,10 @@ const DERIV_API = "https://api.derivws.com";
 const AUTH_URL = "https://auth.deriv.com/oauth2/auth";
 const TOKEN_URL = "https://auth.deriv.com/oauth2/token";
 
-// Safety lock: this server does not authorize real-money trading.
-const ENABLE_REAL_TRADING = false;
+
+const ENABLE_REAL_TRADING =
+  process.env.ENABLE_REAL_TRADING === "true";
+
 
 /* ---------------- BASIC CONFIGURATION ---------------- */
 
