@@ -214,15 +214,19 @@ app.get("/health", (req, res) => {
 
 /* ---------------- FRONTEND CONFIG ---------------- */
 
+
 app.get("/api/config", (req, res) => {
   res.set("Cache-Control", "no-store");
 
   res.json({
-    configured: Boolean(CLIENT_ID && BASE_URL && SESSION_SECRET),
+    configured: Boolean(
+      CLIENT_ID && DERIV_APP_ID && BASE_URL && SESSION_SECRET
+    ),
     app_id: DERIV_APP_ID,
-    real_trading_enabled: false
+    real_trading_enabled: ENABLE_REAL_TRADING
   });
 });
+
 
 /* ---------------- DERIV LOGIN ---------------- */
 
