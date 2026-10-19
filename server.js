@@ -208,7 +208,7 @@ app.get("/health", (req, res) => {
   res.json({
     ok: true,
     app: "Tradedollars",
-    real_trading_enabled: false
+    real_trading_enabled: ENABLE_REAL_TRADING
   });
 });
 
