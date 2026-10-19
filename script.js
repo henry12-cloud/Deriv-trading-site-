@@ -1294,6 +1294,30 @@ function initialise() {
     });
   }
 
+  const accountMode = $("accountMode");
+
+  if (accountMode) {
+    accountMode.addEventListener("change", () => {
+      const mode = accountMode.value;
+
+      if (mode === "real") {
+        setStatus(
+          "accountStatus",
+          "Real account selection is not enabled yet.",
+          "#f59e0b"
+        );
+
+        accountMode.value = "demo";
+        recordObservation(
+          "Real account selection blocked until server verification is complete."
+        );
+        return;
+      }
+
+      refreshAccount();
+    });
+       }
+   
   const refreshButton = $("refreshAccount");
 
   if (refreshButton) {
