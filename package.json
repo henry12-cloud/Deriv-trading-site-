@@ -1,3 +1,4 @@
+
 {
   "name": "tradedollars",
   "version": "1.0.0",
@@ -11,9 +12,9 @@
   },
   "dependencies": {
     "express": "^4.21.2",
-    "express-session": "^1.18.1"
+    "express-session": "^1.18.1",
+    "ws": "^8.18.0"
   },
   "private": true,
   "license": "UNLICENSED"
 }
-
