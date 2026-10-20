@@ -29,11 +29,12 @@ const state = {
   reconnectTimer: null,
   responseTimer: null,
   requestId: 0,
-
-  // Demo quote tracking — no purchases
-  tradeRequestId: 0,
-  pendingProposalReqId: null,
-  latestProposal: null,
+// Demo quote and purchase tracking
+tradeRequestId: 0,
+pendingProposalReqId: null,
+pendingProposalDetails: null,
+pendingBuyReqId: null,
+latestProposal: null,
 
   connected: false,
   monitoring: true,
@@ -637,15 +638,25 @@ function updateSignal() {
     state.monitoring ? "#22c55e" : "#f59e0b"
   );
 
+  
   const buyButton = $("confirmBuy");
 
   if (buyButton) {
-    buyButton.disabled = true;
-    buyButton.textContent = "CONFIRM BUY — DISABLED";
+    const quote = state.latestProposal;
+
+    buyButton.disabled = !(
+      state.tradingConnected &&
+      quote &&
+      quote.id &&
+      state.pendingBuyReqId === null
+    );
+
+    buyButton.textContent = "CONFIRM DEMO BUY";
     buyButton.title =
-      "Trading orders are disabled in this signal-only version.";
+      "Demo account only. Requires a fresh, valid quote.";
   }
 }
+
 
 /* ---------------- LIVE PRICE CHART ---------------- */
 
@@ -868,6 +879,77 @@ async function connectTradingSocket() {
       try {
         const message = JSON.parse(event.data);
 
+if (
+  message.req_id === state.pendingBuyReqId &&
+  (
+    message.msg_type === "buy" ||
+    message.error
+  )
+) {
+  const button = $("confirmBuy");
+  state.pendingBuyReqId = null;
+
+  if (message.error) {
+    state.latestProposal = null;
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Purchase failed — request a new quote";
+    }
+
+    const status = $("quoteStatus");
+    if (status) {
+      status.textContent =
+        "Demo purchase rejected: " +
+        (message.error.message || "Unknown API error");
+    }
+
+    return;
+  }
+
+  const purchase = message.buy;
+
+  if (!purchase || !purchase.contract_id) {
+    state.latestProposal = null;
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = "Purchase unverified — request a new quote";
+    }
+
+    const status = $("quoteStatus");
+    if (status) {
+      status.textContent =
+        "No confirmed contract ID was returned. Check your demo account.";
+    }
+
+    return;
+  }
+
+  state.latestProposal = null;
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Demo purchase confirmed";
+  }
+
+  const status = $("quoteStatus");
+  if (status) {
+    status.textContent =
+      "DEMO PURCHASE CONFIRMED — Contract ID: " +
+      purchase.contract_id;
+  }
+
+  const details = $("quoteDetails");
+  if (details) {
+    details.textContent =
+      "Demo contract ID: " + purchase.contract_id +
+      " | Buy price: " + (purchase.buy_price ?? "—");
+  }
+
+  return;
+         }
+     
         if (message.error) {
           const errorText =
             message.error.message ||
@@ -927,16 +1009,32 @@ async function connectTradingSocket() {
             return;
           }
 
-          state.latestProposal = {
-            id: proposal.id,
-            askPrice,
-            payout,
-            receivedAt: Date.now(),
-            symbol: state.symbol
-          };
+          const quoteDetails = state.pendingProposalDetails;
 
-          state.pendingProposalReqId = null;
+state.latestProposal = {
+  id: proposal.id,
+  askPrice,
+  payout,
+  receivedAt: Date.now(),
+  symbol: quoteDetails
+    ? quoteDetails.symbol
+    : state.symbol,
+  amount: quoteDetails
+    ? quoteDetails.amount
+    : null,
+  contractType: quoteDetails
+    ? quoteDetails.contractType
+    : null,
+  duration: quoteDetails
+    ? quoteDetails.duration
+    : null,
+  barrier: quoteDetails
+    ? quoteDetails.barrier
+    : null
+};
 
+state.pendingProposalReqId = null;
+state.pendingProposalDetails = null;
           setText("quoteStake", askPrice.toFixed(2));
           setText("quotePayout", payout.toFixed(2));
 
@@ -1112,7 +1210,15 @@ function requestDemoQuote() {
 
     payload.barrier = String(barrier);
   }
-
+state.pendingProposalDetails = {
+  reqId: payload.req_id,
+  symbol: state.symbol,
+  amount: amount,
+  contractType: contractType,
+  duration: duration,
+  barrier: payload.barrier ?? null,
+  requestedAt: Date.now()
+};
   state.pendingProposalReqId = payload.req_id;
   state.latestProposal = null;
 
@@ -1143,6 +1249,104 @@ function requestDemoQuote() {
   }
    }
    
+function confirmDemoBuy() {
+  const button = $("confirmBuy");
+  const socket = state.tradingSocket;
+  const quote = state.latestProposal;
+
+  if (!button) return;
+
+  if (
+    !state.tradingConnected ||
+    !socket ||
+    socket.readyState !== WebSocket.OPEN
+  ) {
+    button.textContent = "Demo connection unavailable";
+    return;
+  }
+
+  if (
+    !quote ||
+    !quote.id ||
+    !Number.isFinite(Number(quote.askPrice)) ||
+    Number(quote.askPrice) <= 0
+  ) {
+    button.textContent = "Request a fresh quote first";
+    return;
+  }
+
+  if (Date.now() - quote.receivedAt > 30000) {
+    state.latestProposal = null;
+    button.textContent = "Quote expired — request again";
+    return;
+  }
+
+  if (
+    !quote.symbol ||
+    !quote.amount ||
+    !quote.contractType ||
+    !quote.duration
+  ) {
+    button.textContent = "Quote details incomplete";
+    return;
+  }
+
+  if (state.pendingBuyReqId !== null) {
+    button.textContent = "Purchase already pending";
+    return;
+  }
+
+  const currentType = $("tradeContractType")?.value;
+  const currentAmount = Number($("tradeAmount")?.value);
+  const currentDuration = Number($("tradeDuration")?.value);
+  const currentBarrier = ["DIGITOVER", "DIGITUNDER"].includes(
+    currentType
+  )
+    ? String($("tradeBarrier")?.value ?? "")
+    : null;
+
+  if (
+    quote.symbol !== state.symbol ||
+    quote.contractType !== currentType ||
+    Number(quote.amount) !== currentAmount ||
+    Number(quote.duration) !== currentDuration ||
+    (
+      currentBarrier !== null &&
+      String(quote.barrier) !== currentBarrier
+    )
+  ) {
+    button.textContent = "Settings changed — request a new quote";
+    return;
+  }
+
+  if (!window.confirm(
+    "Buy this contract on your Deriv DEMO account for " +
+    Number(quote.askPrice).toFixed(2) +
+    " " +
+    (quote.currency || "USD") +
+    "? This does not use a real-money account."
+  )) {
+    return;
+  }
+
+  const reqId = ++state.tradeRequestId;
+  state.pendingBuyReqId = reqId;
+  button.disabled = true;
+  button.textContent = "Submitting demo purchase…";
+
+  const sent = sendJson(socket, {
+    buy: quote.id,
+    price: Number(quote.askPrice),
+    req_id: reqId
+  });
+
+  if (!sent) {
+    state.pendingBuyReqId = null;
+    button.disabled = true;
+    button.textContent = "Send failed — request a new quote";
+  }
+       }
+       
 /* ---------------- ACCOUNT STATUS ---------------- */
 
 async function refreshAccount() {
@@ -1300,21 +1504,19 @@ function initialise() {
     });
   }
 
+  
   const confirmBuy = $("confirmBuy");
 
   if (confirmBuy) {
     confirmBuy.disabled = true;
-    confirmBuy.textContent = "CONFIRM BUY — DISABLED";
+    confirmBuy.textContent = "CONFIRM DEMO BUY";
 
     confirmBuy.addEventListener("click", event => {
       event.preventDefault();
-
-      recordObservation(
-        "Order attempt blocked: trading is disabled in this version."
-      );
+      confirmDemoBuy();
     });
-  }
-
+                                }
+         
   const accountMode = $("accountMode");
 
   
