@@ -1153,14 +1153,21 @@ async function refreshAccount() {
   );
 
   try {
-    const response = await fetch("/api/account", {
-      method: "GET",
-      credentials: "include",
-      headers: {
-        Accept: "application/json"
-      }
-    });
+    
+const requestedMode =
+  document.getElementById("accountMode")?.value || "demo";
 
+const response = await fetch(
+  `/api/account?mode=${encodeURIComponent(requestedMode)}`,
+  {
+    method: "GET",
+    credentials: "include",
+    headers: {
+      Accept: "application/json"
+    }
+  }
+);
+     
     const data = await response.json();
 
     if (!response.ok || data.error) {
@@ -1181,8 +1188,8 @@ async function refreshAccount() {
       data;
 
     if (
-      String(account.account_type || "").toLowerCase() !== "demo"
-    ) {
+  String(account.account_type || "").toLowerCase() !== requestedMode
+) {
       setStatus(
         "accountStatus",
         "Account type could not be verified.",
@@ -1310,27 +1317,96 @@ function initialise() {
 
   const accountMode = $("accountMode");
 
-  if (accountMode) {
-    accountMode.addEventListener("change", () => {
-      const mode = accountMode.value;
+  
+if (accountMode) {
+  accountMode.addEventListener("change", async () => {
+    const mode = accountMode.value;
 
-      if (mode === "real") {
+    setStatus(
+      "accountStatus",
+      `Checking ${mode} account...`,
+      "#f59e0b"
+    );
+
+    try {
+      const response = await fetch(
+        `/api/account?mode=${encodeURIComponent(mode)}`,
+        {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            Accept: "application/json"
+          }
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || data.error || !data.account) {
+        accountMode.value = "demo";
+
         setStatus(
           "accountStatus",
-          "Real account selection is not enabled yet.",
+          data.error || "Account verification failed. Demo remains selected.",
           "#f59e0b"
         );
 
-        accountMode.value = "demo";
-        recordObservation(
-          "Real account selection blocked until server verification is complete."
-        );
+        await refreshAccount();
         return;
       }
 
-      refreshAccount();
-    });
-       }
+      const verifiedType = String(
+        data.account.account_type || ""
+      ).toLowerCase();
+
+      if (verifiedType !== mode) {
+        accountMode.value = "demo";
+
+        setStatus(
+          "accountStatus",
+          "Account type mismatch. Demo remains selected.",
+          "#f59e0b"
+        );
+
+        await refreshAccount();
+        return;
+      }
+
+      setStatus(
+        "accountStatus",
+        `${mode === "real" ? "Real" : "Demo"} account verified.`,
+        "#22c55e"
+      );
+
+      setText(
+        "accountId",
+        data.account.account_id || "Connected"
+      );
+
+      if (data.account.balance !== undefined &&
+          data.account.balance !== null) {
+        setText("accountBalance", data.account.balance);
+        setText("balance", data.account.balance);
+      }
+
+      recordObservation(
+        `${mode === "real" ? "Real" : "Demo"} account selection verified.`
+      );
+    } catch (error) {
+      console.warn("Account selection check failed:", error);
+      accountMode.value = "demo";
+
+      setStatus(
+        "accountStatus",
+        "Account check failed. Demo remains selected.",
+        "#f59e0b"
+      );
+
+      await refreshAccount();
+    }
+  });
+}
+   
    
   const refreshButton = $("refreshAccount");
 
