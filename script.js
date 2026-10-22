@@ -1538,97 +1538,16 @@ if (confirmBuy) {
      }
      
          
+
   const accountMode = $("accountMode");
 
-  
-if (accountMode) {
-  accountMode.addEventListener("change", async () => {
-    const mode = accountMode.value;
-
-    setStatus(
-      "accountStatus",
-      `Checking ${mode} account...`,
-      "#f59e0b"
-    );
-
-    try {
-      const response = await fetch(
-        `/api/account?mode=${encodeURIComponent(mode)}`,
-        {
-          method: "GET",
-          credentials: "include",
-          headers: {
-            Accept: "application/json"
-          }
-        }
-      );
-
-      const data = await response.json();
-
-      if (!response.ok || data.error || !data.account) {
-        accountMode.value = "demo";
-
-        setStatus(
-          "accountStatus",
-          data.error || "Account verification failed. Demo remains selected.",
-          "#f59e0b"
-        );
-
-        await refreshAccount();
-        return;
-      }
-
-      const verifiedType = String(
-        data.account.account_type || ""
-      ).toLowerCase();
-
-      if (verifiedType !== mode) {
-        accountMode.value = "demo";
-
-        setStatus(
-          "accountStatus",
-          "Account type mismatch. Demo remains selected.",
-          "#f59e0b"
-        );
-
-        await refreshAccount();
-        return;
-      }
-
-      setStatus(
-        "accountStatus",
-        `${mode === "real" ? "Real" : "Demo"} account verified.`,
-        "#22c55e"
-      );
-
-      setText(
-        "accountId",
-        data.account.account_id || "Connected"
-      );
-
-      if (data.account.balance !== undefined &&
-          data.account.balance !== null) {
-        setText("accountBalance", data.account.balance);
-        setText("balance", data.account.balance);
-      }
-
-      recordObservation(
-        `${mode === "real" ? "Real" : "Demo"} account selection verified.`
-      );
-    } catch (error) {
-      console.warn("Account selection check failed:", error);
-      accountMode.value = "demo";
-
-      setStatus(
-        "accountStatus",
-        "Account check failed. Demo remains selected.",
-        "#f59e0b"
-      );
-
-      await refreshAccount();
-    }
-  });
-}
+  // This version is restricted to demo-account testing.
+  if (accountMode) {
+    accountMode.value = "demo";
+    accountMode.disabled = true;
+    accountMode.title =
+      "Demo account only. Real-money trading is disabled.";
+  }
    
    
   const refreshButton = $("refreshAccount");
