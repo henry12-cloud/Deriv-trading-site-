@@ -1068,8 +1068,18 @@ state.pendingProposalDetails = null;
       }
     });
     socket.addEventListener("error", () => {
-      console.warn("Demo trading socket connection error.");
-    });
+  state.tradingConnected = false;
+
+  console.error(
+    "Demo trading socket connection error. Check the Network panel for the WebSocket handshake."
+  );
+
+  setStatus(
+    "quoteStatus",
+    "Demo connection failed. Check the WebSocket connection and Render logs.",
+    "#ef4444"
+  );
+});
 
     socket.addEventListener("close", () => {
       if (state.tradingSocket !== socket) return;
