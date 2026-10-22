@@ -1096,6 +1096,7 @@ state.pendingProposalDetails = null;
 
 /* ---------------- DEMO QUOTE REQUEST ---------------- */
 
+
 function requestDemoQuote() {
   const socket = state.tradingSocket;
 
@@ -1117,11 +1118,7 @@ function requestDemoQuote() {
   const barrierElement = $("tradeBarrier");
   const durationElement = $("tradeDuration");
 
-  if (
-    !amountElement ||
-    !typeElement ||
-    !durationElement
-  ) {
+  if (!amountElement || !typeElement || !durationElement) {
     setStatus(
       "quoteStatus",
       "Quote controls are missing. Check the Contract Quote panel in index.html.",
@@ -1162,11 +1159,11 @@ function requestDemoQuote() {
 
   const payload = {
     proposal: 1,
-    amount: amount,
+    amount,
     basis: "stake",
     contract_type: contractType,
     currency: "USD",
-    duration: duration,
+    duration,
     duration_unit: "t",
     underlying_symbol: state.symbol,
     req_id: ++state.tradeRequestId
@@ -1191,14 +1188,8 @@ function requestDemoQuote() {
       !Number.isInteger(barrier) ||
       barrier < 0 ||
       barrier > 9 ||
-      (
-        contractType === "DIGITOVER" &&
-        barrier > 8
-      ) ||
-      (
-        contractType === "DIGITUNDER" &&
-        barrier < 1
-      )
+      (contractType === "DIGITOVER" && barrier > 8) ||
+      (contractType === "DIGITUNDER" && barrier < 1)
     ) {
       setStatus(
         "quoteStatus",
@@ -1210,15 +1201,17 @@ function requestDemoQuote() {
 
     payload.barrier = String(barrier);
   }
-state.pendingProposalDetails = {
-  reqId: payload.req_id,
-  symbol: state.symbol,
-  amount: amount,
-  contractType: contractType,
-  duration: duration,
-  barrier: payload.barrier ?? null,
-  requestedAt: Date.now()
-};
+
+  state.pendingProposalDetails = {
+    reqId: payload.req_id,
+    symbol: state.symbol,
+    amount,
+    contractType,
+    duration,
+    barrier: payload.barrier ?? null,
+    requestedAt: Date.now()
+  };
+
   state.pendingProposalReqId = payload.req_id;
   state.latestProposal = null;
 
@@ -1240,6 +1233,7 @@ state.pendingProposalDetails = {
 
   if (!sent) {
     state.pendingProposalReqId = null;
+    state.pendingProposalDetails = null;
 
     setStatus(
       "quoteStatus",
@@ -1247,8 +1241,8 @@ state.pendingProposalDetails = {
       "#ef4444"
     );
   }
-   }
-   
+}
+
 function confirmDemoBuy() {
   const button = $("confirmBuy");
   const socket = state.tradingSocket;
@@ -1261,6 +1255,7 @@ function confirmDemoBuy() {
     !socket ||
     socket.readyState !== WebSocket.OPEN
   ) {
+    button.disabled = true;
     button.textContent = "Demo connection unavailable";
     return;
   }
@@ -1271,12 +1266,17 @@ function confirmDemoBuy() {
     !Number.isFinite(Number(quote.askPrice)) ||
     Number(quote.askPrice) <= 0
   ) {
+    button.disabled = true;
     button.textContent = "Request a fresh quote first";
     return;
   }
 
-  if (Date.now() - quote.receivedAt > 30000) {
+  if (
+    !Number.isFinite(quote.receivedAt) ||
+    Date.now() - quote.receivedAt > 30000
+  ) {
     state.latestProposal = null;
+    button.disabled = true;
     button.textContent = "Quote expired — request again";
     return;
   }
@@ -1287,11 +1287,13 @@ function confirmDemoBuy() {
     !quote.contractType ||
     !quote.duration
   ) {
+    button.disabled = true;
     button.textContent = "Quote details incomplete";
     return;
   }
 
   if (state.pendingBuyReqId !== null) {
+    button.disabled = true;
     button.textContent = "Purchase already pending";
     return;
   }
@@ -1299,9 +1301,11 @@ function confirmDemoBuy() {
   const currentType = $("tradeContractType")?.value;
   const currentAmount = Number($("tradeAmount")?.value);
   const currentDuration = Number($("tradeDuration")?.value);
-  const currentBarrier = ["DIGITOVER", "DIGITUNDER"].includes(
-    currentType
-  )
+
+  const currentBarrier = [
+    "DIGITOVER",
+    "DIGITUNDER"
+  ].includes(currentType)
     ? String($("tradeBarrier")?.value ?? "")
     : null;
 
@@ -1315,17 +1319,20 @@ function confirmDemoBuy() {
       String(quote.barrier) !== currentBarrier
     )
   ) {
+    button.disabled = true;
     button.textContent = "Settings changed — request a new quote";
     return;
   }
 
-  if (!window.confirm(
-    "Buy this contract on your Deriv DEMO account for " +
-    Number(quote.askPrice).toFixed(2) +
-    " " +
-    (quote.currency || "USD") +
-    "? This does not use a real-money account."
-  )) {
+  if (
+    !window.confirm(
+      "Buy this contract on your Deriv DEMO account for " +
+      Number(quote.askPrice).toFixed(2) +
+      " " +
+      (quote.currency || "USD") +
+      "? This does not use a real-money account."
+    )
+  ) {
     return;
   }
 
@@ -1346,6 +1353,8 @@ function confirmDemoBuy() {
     button.textContent = "Send failed — request a new quote";
   }
        }
+   
+
        
 /* ---------------- ACCOUNT STATUS ---------------- */
 
@@ -1505,17 +1514,19 @@ function initialise() {
   }
 
   
-  const confirmBuy = $("confirmBuy");
+  
+const confirmBuy = $("confirmBuy");
 
-  if (confirmBuy) {
-    confirmBuy.disabled = true;
-    confirmBuy.textContent = "CONFIRM DEMO BUY";
+if (confirmBuy) {
+  confirmBuy.disabled = false;
+  confirmBuy.textContent = "CONFIRM DEMO BUY";
 
-    confirmBuy.addEventListener("click", event => {
-      event.preventDefault();
-      confirmDemoBuy();
-    });
-                                }
+  confirmBuy.addEventListener("click", event => {
+    event.preventDefault();
+    confirmDemoBuy();
+  });
+     }
+     
          
   const accountMode = $("accountMode");
 
