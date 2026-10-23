@@ -386,14 +386,7 @@ app.get("/api/account", requireLogin, async (req, res) => {
       });
     }
 
-    if (
-      requestedMode === "real" &&
-      !ENABLE_REAL_TRADING
-    ) {
-      return res.status(403).json({
-        error: "Real-account access is not enabled yet."
-      });
-    }
+
 
     const result = await derivRequest(
       `${DERIV_API}/trading/v1/options/accounts`,
