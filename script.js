@@ -1541,15 +1541,28 @@ console.warn("Unexpected account type:", account);
     }
 
 
-    setStatus(
+        setStatus(
       "accountStatus",
       `${requestedMode === "real" ? "Real" : "Demo"} account connected`,
       "#22c55e"
     );
-   
+
+    setStatus(
+      "accountMessage",
+      requestedMode === "real"
+        ? "Real account details checked. Real-money order placement remains disabled."
+        : "Demo account details checked. Demo testing remains available.",
+      requestedMode === "real" ? "#f59e0b" : "#22c55e"
+    );
+
+    setText(
+      "tradingMode",
+      requestedMode === "real"
+        ? "Real account selected — orders disabled"
+        : "Demo account"
+    );
 
     connectTradingSocket();
-
     setText(
       "accountId",
       account.account_id ||
