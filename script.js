@@ -182,6 +182,8 @@ sendJson(socket, {
 
     try {
       message = JSON.parse(event.data);
+       setStatus("marketStatus", "Market server response received.", "#f59e0b");
+console.log("PUBLIC MARKET RESPONSE:", message);
     } catch (error) {
       console.error("Invalid WebSocket response:", event.data);
       return;
