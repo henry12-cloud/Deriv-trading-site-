@@ -884,6 +884,7 @@ async function connectTradingSocket() {
 
       try {
         const message = JSON.parse(event.data);
+         console.log("PUBLIC MARKET RESPONSE:", message);
 
 if (
   message.req_id === state.pendingBuyReqId &&
