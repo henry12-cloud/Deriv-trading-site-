@@ -26,6 +26,12 @@ const state = {
      tradingSocket: null,
   tradingConnecting: false,
   tradingConnected: false,
+
+  realTradingSocket: null,
+realTradingConnecting: false,
+realTradingConnected: false,
+activeTradingMode: "demo",
+  
   reconnectTimer: null,
   responseTimer: null,
   requestId: 0,
@@ -889,7 +895,7 @@ if (
   const button = $("confirmBuy");
   state.pendingBuyReqId = null;
 
-  if (message.error) {
+    if (message.error) {
     state.latestProposal = null;
 
     if (button) {
@@ -1038,7 +1044,7 @@ state.latestProposal = {
 state.pendingProposalReqId = null;
 state.pendingProposalDetails = null;
           setText("quoteStake", askPrice.toFixed(2));
-          setText("quotePayout", payout.toFixed(2));
+setText("quotePayout", payout.toFixed(2));
 
           setStatus(
   "quoteStatus",
@@ -1083,7 +1089,7 @@ state.pendingProposalDetails = null;
   );
 });
 
-    socket.addEventListener("close", () => {
+socket.addEventListener("close", () => {
   if (state.tradingSocket !== socket) return;
 
   state.tradingSocket = null;
@@ -1107,10 +1113,8 @@ state.pendingProposalDetails = null;
     "Demo connection closed. Reconnect and request a fresh quote.",
     "#ef4444"
   );
-
-  console.warn("Demo trading socket closed; old quote cleared.");
+     console.warn("Demo trading socket closed; old quote cleared.");
 });
-
   } catch (error) {
     state.tradingConnected = false;
     state.tradingSocket = null;
@@ -1124,10 +1128,109 @@ state.pendingProposalDetails = null;
   }
 }
 
+async function connectRealTradingSocket() {
+  if (state.realTradingConnecting || state.realTradingConnected) {
+    return;
+  }
+
+  state.realTradingConnecting = true;
+
+  try {
+    const response = await fetch(
+      "/api/real-trading-connection",
+      {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store"
+      }
+    );
+
+    const data = await response.json();
+
+    if (!response.ok || !data.connected || data.account_type !== "real") {
+      throw new Error(
+        data.error || "Real-account connection was not authorized."
+      );
+    }
+
+    const url = new URL(data.ws_url);
+
+    if (
+      url.protocol !== "wss:" ||
+      url.hostname !== "api.derivws.com" ||
+      url.pathname !== "/trading/v1/options/ws/real" ||
+      !url.searchParams.has("otp")
+    ) {
+      throw new Error("The real-account WebSocket URL failed validation.");
+    }
+
+    if (state.realTradingSocket) {
+      state.realTradingSocket.close();
+      state.realTradingSocket = null;
+    }
+
+    const socket = new WebSocket(data.ws_url);
+    state.realTradingSocket = socket;
+
+    socket.addEventListener("open", () => {
+      if (state.realTradingSocket !== socket) {
+        socket.close();
+        return;
+      }
+
+      state.realTradingConnected = true;
+
+      setStatus(
+        "accountMessage",
+        "Real-account WebSocket connected. Order placement is not yet enabled.",
+        "#f59e0b"
+      );
+    });
+
+    socket.addEventListener("error", () => {
+      if (state.realTradingSocket !== socket) return;
+
+      state.realTradingConnected = false;
+
+      setStatus(
+        "accountMessage",
+        "Real-account WebSocket connection failed.",
+        "#ff6d80"
+      );
+    });
+
+    socket.addEventListener("close", () => {
+      if (state.realTradingSocket !== socket) return;
+
+      state.realTradingConnected = false;
+      state.realTradingSocket = null;
+    });
+
+  } catch (error) {
+    setStatus(
+      "accountMessage",
+      error.message || "Unable to connect to the real account.",
+      "#ff6d80"
+    );
+  } finally {
+    state.realTradingConnecting = false;
+  }
+}
+
 /* ---------------- DEMO QUOTE REQUEST ---------------- */
 
 
 function requestDemoQuote() {
+  
+  if (state.activeTradingMode !== "demo") {
+    setStatus(
+      "quoteStatus",
+      "Demo quote blocked. The selected account is not Demo.",
+      "#ff6d80"
+    );
+    return;
+  }
+
   const socket = state.tradingSocket;
 
   if (
@@ -1200,7 +1303,7 @@ function requestDemoQuote() {
   };
 
   if (
-    contractType === "DIGITOVER" ||
+contractType === "DIGITOVER" ||
     contractType === "DIGITUNDER"
   ) {
     if (!barrierElement) {
@@ -1256,7 +1359,7 @@ function requestDemoQuote() {
 
   setText(
     "quoteDetails",
-"Waiting for a fresh Deriv demo quote. No purchase has been made yet."
+    "Waiting for a fresh Deriv demo quote. No purchase has been made yet."
   );
 
   const sent = sendJson(socket, payload);
@@ -1274,6 +1377,16 @@ function requestDemoQuote() {
 }
 
 function confirmDemoBuy() {
+  
+  if (state.activeTradingMode !== "demo") {
+    setStatus(
+      "quoteStatus",
+      "Demo purchase blocked. The selected account is not Demo.",
+      "#ff6d80"
+    );
+    return;
+  }
+
   const button = $("confirmBuy");
   const socket = state.tradingSocket;
   const quote = state.latestProposal;
@@ -1317,7 +1430,7 @@ function confirmDemoBuy() {
     !quote.contractType ||
     !quote.duration
   ) {
-    button.disabled = true;
+     button.disabled = true;
     button.textContent = "Quote details incomplete";
     return;
   }
@@ -1341,7 +1454,7 @@ function confirmDemoBuy() {
 
   if (
     quote.symbol !== state.symbol ||
-    quote.contractType !== currentType ||
+quote.contractType !== currentType ||
     Number(quote.amount) !== currentAmount ||
     Number(quote.duration) !== currentDuration ||
     (
@@ -1423,23 +1536,7 @@ const response = await fetch(
       console.warn("Account check response:", data);
       return;
     }
-
-
-    const account =
-      data.account ||
-      data.data ||
-      data;
-
-    if (
-  String(account.account_type || "").toLowerCase() !== requestedMode
-) {
-      setStatus(
-        "accountStatus",
-        "Account type could not be verified.",
-        "#f59e0b"
-      );
-
-      console.warn("Unexpected account type:", account);
+console.warn("Unexpected account type:", account);
       return;
     }
 
@@ -1548,7 +1645,7 @@ function initialise() {
 const confirmBuy = $("confirmBuy");
 
 if (confirmBuy) {
-  confirmBuy.disabled = false;
+   confirmBuy.disabled = false;
   confirmBuy.textContent = "CONFIRM DEMO BUY";
 
   confirmBuy.addEventListener("click", event => {
@@ -1569,6 +1666,27 @@ if (accountMode) {
 
   accountMode.addEventListener("change", async () => {
     const mode = accountMode.value;
+    
+  state.activeTradingMode = mode;
+
+  // Invalidate any quote when switching accounts.
+  state.latestProposal = null;
+  state.pendingProposalReqId = null;
+  state.pendingProposalDetails = null;
+  state.pendingBuyReqId = null;
+
+  const buyButton = $("confirmBuy");
+  if (buyButton) {
+    buyButton.disabled = true;
+    buyButton.textContent = "REQUEST A FRESH QUOTE";
+  }
+
+  const quoteStatus = $("quoteStatus");
+  if (quoteStatus) {
+    quoteStatus.textContent =
+      "Account changed. Request a new quote for the selected account.";
+  }
+
 
     setStatus(
       "accountStatus",
@@ -1605,6 +1723,36 @@ if (accountMode) {
       const account = data.account || data;
 
       if (accountMode.value !== mode) return;
+      
+if (mode === "real") {
+        const verifiedType = String(
+          account.account_type || account.type || ""
+        ).toLowerCase();
+
+        if (verifiedType !== "real") {
+
+          throw new Error(
+            "The selected account was not verified as a real account."
+          );
+        }
+
+                setStatus(
+          "accountMessage",
+          "Real account details checked. Checking the separate real connection...",
+          "#f59e0b"
+        );
+
+        // Connect only after the account check succeeds.
+        await connectRealTradingSocket();
+      } else {
+        if (state.realTradingSocket) {
+          state.realTradingSocket.close();
+          state.realTradingSocket = null;
+        }
+
+        state.realTradingConnected = false;
+    }
+
 
       const accountId = $("accountId");
       const accountBalance = $("accountBalance");
@@ -1661,8 +1809,9 @@ if (accountMode) {
       );
     }
   });
-                       }
-                                 
+}
+
+   
    
   const refreshButton = $("refreshAccount");
 
@@ -1682,7 +1831,7 @@ if (accountMode) {
         ? strategy.options[strategy.selectedIndex].text
         : "Unspecified strategy";
 
-      const noteText = notes
+const noteText = notes
         ? notes.value.trim()
         : "";
 
@@ -1696,7 +1845,7 @@ if (accountMode) {
 
       recordObservation(
         strategyName + ": " + noteText
-      );
+       );
 
       if (notes) notes.value = "";
 
@@ -1735,4 +1884,21 @@ if (document.readyState === "loading") {
   initialise();
 }
 
-  
+
+
+
+    const account =
+      data.account ||
+      data.data ||
+      data;
+
+if (
+  String(account.account_type || "").toLowerCase() !== requestedMode
+) {
+      setStatus(
+        "accountStatus",
+        "Account type could not be verified.",
+        "#f59e0b"
+      );
+
+      
