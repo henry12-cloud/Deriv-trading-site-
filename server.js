@@ -42,7 +42,6 @@ const TOKEN_URL = "https://auth.deriv.com/oauth2/token";
 const ENABLE_REAL_TRADING =
   process.env.ENABLE_REAL_TRADING === "true";
 
-
 /* ---------------- BASIC CONFIGURATION ---------------- */
 
 app.use(express.json());
@@ -386,7 +385,7 @@ app.get("/api/account", requireLogin, async (req, res) => {
       });
     }
 
-
+    
 
     const result = await derivRequest(
       `${DERIV_API}/trading/v1/options/accounts`,
@@ -424,7 +423,6 @@ app.get("/api/account", requireLogin, async (req, res) => {
     sendApiError(res, error);
   }
 });
-   
 
 /* -------- TEMPORARY ACCOUNT VERIFICATION -------- */
 
@@ -462,7 +460,7 @@ app.get("/api/accounts-check", requireLogin, async (req, res) => {
     sendApiError(res, error);
   }
 });
- 
+
 /* -------- REAL ACCOUNT CONNECTION CHECK -------- */
 
 app.get(
@@ -560,7 +558,114 @@ app.get(
     }
   }
 );
-       
+
+/* ---------------- REAL TRADING CONNECTION ---------------- */
+
+app.get(
+  "/api/real-trading-connection",
+  requireLogin,
+  async (req, res) => {
+    res.set("Cache-Control", "no-store");
+
+    try {
+      if (!ENABLE_REAL_TRADING) {
+        return res.status(403).json({
+          connected: false,
+          error: "Real trading is not enabled in server configuration."
+        });
+      }
+
+      const result = await derivRequest(
+        `${DERIV_API}/trading/v1/options/accounts`,
+        {
+          method: "GET",
+          headers: bearerHeaders(req)
+        }
+      );
+
+      const accounts = accountListFromResponse(result);
+
+      const realAccount = accounts.find(account =>
+        String(account.account_type || "").toLowerCase() === "real"
+      );
+
+      if (!realAccount || !realAccount.account_id) {
+        return res.status(404).json({
+          connected: false,
+          error: "A verified real Options account was not found."
+        });
+      }
+
+      const account = normalizeAccount(realAccount);
+
+      if (account.status !== "active") {
+        return res.status(403).json({
+          connected: false,
+          error: "The real account is not active."
+        });
+      }
+
+      const otpResult = await derivRequest(
+        `${DERIV_API}/trading/v1/options/accounts/${encodeURIComponent(account.id)}/otp`,
+        {
+          method: "POST",
+          headers: bearerHeaders(req)
+        }
+      );
+
+      const data = otpResult?.data || otpResult;
+      const wsUrl = data.url || data.ws_url || data.websocket_url;
+
+      if (!wsUrl) {
+        return res.status(502).json({
+          connected: false,
+          error: "Deriv did not return a WebSocket URL."
+        });
+      }
+
+      let parsedUrl;
+
+      try {
+        parsedUrl = new URL(wsUrl);
+      } catch {
+        return res.status(502).json({
+          connected: false,
+          error: "Deriv returned an invalid WebSocket URL."
+        });
+      }
+
+      if (
+        parsedUrl.protocol !== "wss:" ||
+        parsedUrl.hostname !== "api.derivws.com" ||
+        parsedUrl.pathname !== "/trading/v1/options/ws/real" ||
+        !parsedUrl.searchParams.has("otp")
+      ) {
+        return res.status(403).json({
+          connected: false,
+          error: "The returned URL is not the expected real-account endpoint."
+        });
+      }
+
+      return res.json({
+        connected: true,
+        account_type: "real",
+        account_id: account.id,
+        currency: account.currency,
+        balance: account.balance,
+        ws_url: wsUrl,
+        real_trading_enabled: true
+      });
+    } catch (error) {
+      console.error("Real trading connection error:", error.message);
+
+return res.status(500).json({
+  connected: false,
+  error: "Unable to establish the real-account connection. Please check the server logs."
+});
+    }
+  }
+);
+
 /* ---------------- ACCOUNT STATUS ---------------- */
 
 app.get("/account-status", requireLogin, async (req, res) => {
@@ -637,13 +742,6 @@ app.get(
       ) {
         return res.status(403).json({
           error: "Only authenticated demo trading is permitted."
-        });
-     }
-   
-
-      if (wsUrl.includes("/real")) {
-        return res.status(403).json({
-          error: "Real-money connections are disabled."
         });
       }
 
