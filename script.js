@@ -936,8 +936,10 @@ if (
   const status = $("quoteStatus");
   if (status) {
     status.textContent =
-      "DEMO PURCHASE CONFIRMED — Contract ID: " +
-      purchase.contract_id;
+"DEMO PURCHASE CONFIRMED — Contract ID: " +
+      purchase.contract_id +
+      " | Buy price: " +
+      (purchase.buy_price ?? "—");
   }
 
   const details = $("quoteDetails");
@@ -1039,10 +1041,10 @@ state.pendingProposalDetails = null;
           setText("quotePayout", payout.toFixed(2));
 
           setStatus(
-            "quoteStatus",
-            "Demo quote received. No contract purchased.",
-            "#22c55e"
-          );
+  "quoteStatus",
+  "Demo quote received. Review the terms before confirming your demo purchase.",
+  "#22c55e"
+);
 
           const details = $("quoteDetails");
 
@@ -1236,7 +1238,7 @@ function requestDemoQuote() {
 
   setText(
     "quoteDetails",
-    "Waiting for a quote from Deriv. No contract will be purchased."
+"Waiting for a fresh Deriv demo quote. No purchase has been made yet."
   );
 
   const sent = sendJson(socket, payload);
