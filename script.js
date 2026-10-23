@@ -1559,16 +1559,110 @@ if (confirmBuy) {
      
          
 
-  const accountMode = $("accountMode");
+  
+const accountMode = $("accountMode");
 
-  // This version is restricted to demo-account testing.
-  if (accountMode) {
-    accountMode.value = "demo";
-    accountMode.disabled = true;
-    accountMode.title =
-      "Demo account only. Real-money trading is disabled.";
-  }
-   
+if (accountMode) {
+  accountMode.disabled = false;
+  accountMode.title =
+    "Select Demo or Real to check the account. Real-money orders remain disabled.";
+
+  accountMode.addEventListener("change", async () => {
+    const mode = accountMode.value;
+
+    setStatus(
+      "accountStatus",
+      `Checking ${mode} account...`,
+      "#f59e0b"
+    );
+
+    setStatus(
+      "accountMessage",
+      mode === "real"
+        ? "Checking real-account connection. Trading orders remain disabled."
+        : "Checking demo-account connection.",
+      "#f59e0b"
+    );
+
+    try {
+      const response = await fetch(
+        `/api/account?mode=${encodeURIComponent(mode)}`,
+        {
+          method: "GET",
+          credentials: "same-origin"
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok || !data || data.error) {
+        throw new Error(
+          data?.error || `Account check failed (${response.status}).`
+        );
+      }
+
+      // Do not assume the requested account was returned.
+      const account = data.account || data;
+
+      if (accountMode.value !== mode) return;
+
+      const accountId = $("accountId");
+      const accountBalance = $("accountBalance");
+      const tradingMode = $("tradingMode");
+
+      if (accountId) {
+        accountId.textContent =
+          account.account_id || account.loginid || "--";
+      }
+
+      if (accountBalance) {
+        const balance = Number(account.balance);
+
+        accountBalance.textContent =
+          account.balance !== undefined &&
+          Number.isFinite(balance)
+            ? `${account.currency || "USD"} ${balance.toFixed(2)}`
+            : "--";
+      }
+
+      if (tradingMode) {
+        tradingMode.textContent =
+          mode === "real"
+            ? "Real account selected — orders disabled"
+            : "Demo account";
+      }
+
+      setStatus(
+        "accountStatus",
+        account.account_id || account.loginid
+          ? `${mode === "real" ? "Real" : "Demo"} account identified`
+          : `${mode} account response received; identity needs verification`,
+        mode === "real" ? "#f59e0b" : "#22c55e"
+      );
+
+      setStatus(
+        "accountMessage",
+        mode === "real"
+          ? "Real account details checked. Real-money order placement remains disabled."
+          : "Demo account details checked. Demo testing remains available.",
+        mode === "real" ? "#f59e0b" : "#22c55e"
+      );
+    } catch (error) {
+      setStatus(
+        "accountStatus",
+        "Account check failed",
+        "#ff6d80"
+      );
+
+      setStatus(
+        "accountMessage",
+        error.message || "Unable to check this account.",
+        "#ff6d80"
+      );
+    }
+  });
+                       }
+                                 
    
   const refreshButton = $("refreshAccount");
 
