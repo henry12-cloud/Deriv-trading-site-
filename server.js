@@ -235,7 +235,7 @@ app.get("/login", (req, res) => {
       "Deriv OAuth is not configured. Check the CLIENT_ID environment variable."
     );
   }
-
+console.log("LOGIN: /login route reached");
   const state = randomString(24);
   const verifier = randomString(64);
   const challenge = sha256Base64Url(verifier);
@@ -314,6 +314,11 @@ app.get("/oauth/callback", async (req, res) => {
     });
 
     const tokenData = await tokenResponse.json().catch(() => ({}));
+    console.log("OAUTH: token exchange response", {
+  httpStatus: tokenResponse.status,
+  hasAccessToken: Boolean(tokenData.access_token),
+  hasError: Boolean(tokenData.error)
+});
 
     if (!tokenResponse.ok || !tokenData.access_token) {
       console.error(
@@ -337,6 +342,9 @@ app.get("/oauth/callback", async (req, res) => {
     delete req.session.account;
 
     req.session.save(error => {
+      console.log("LOGIN: session save callback completed", {
+  failed: Boolean(error)
+});
       if (error) {
         console.error("Could not save authenticated session:", error);
         return res.status(500).send(
