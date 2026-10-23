@@ -1084,14 +1084,32 @@ state.pendingProposalDetails = null;
 });
 
     socket.addEventListener("close", () => {
-      if (state.tradingSocket !== socket) return;
+  if (state.tradingSocket !== socket) return;
 
-      state.tradingSocket = null;
-      state.tradingConnected = false;
-      state.tradingConnecting = false;
+  state.tradingSocket = null;
+  state.tradingConnected = false;
+  state.tradingConnecting = false;
 
-      console.warn("Demo trading socket closed.");
-    });
+  // A quote from a closed connection must not be reused.
+  state.latestProposal = null;
+  state.pendingProposalReqId = null;
+  state.pendingProposalDetails = null;
+  state.pendingBuyReqId = null;
+
+  const button = $("confirmBuy");
+  if (button) {
+    button.disabled = true;
+    button.textContent = "Request a fresh demo quote";
+  }
+
+  setStatus(
+    "quoteStatus",
+    "Demo connection closed. Reconnect and request a fresh quote.",
+    "#ef4444"
+  );
+
+  console.warn("Demo trading socket closed; old quote cleared.");
+});
 
   } catch (error) {
     state.tradingConnected = false;
