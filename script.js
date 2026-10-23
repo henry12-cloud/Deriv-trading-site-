@@ -1540,11 +1540,13 @@ console.warn("Unexpected account type:", account);
       return;
     }
 
+
     setStatus(
       "accountStatus",
-      "Demo account connected",
+      `${requestedMode === "real" ? "Real" : "Demo"} account connected`,
       "#22c55e"
     );
+   
 
     connectTradingSocket();
 
