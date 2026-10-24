@@ -1,8 +1,9 @@
 
 /* =========================================================
    TRADEDOLLARS — SERVER.JS
-   OAuth login + demo account + trading connection
-   REAL-MONEY TRADING DISABLED
+   Deriv OAuth + sessions + account verification
+   Demo quote connection only
+   REAL-MONEY ORDER PLACEMENT DISABLED
    ========================================================= */
 
 "use strict";
@@ -16,7 +17,7 @@ const app = express();
 
 app.set("trust proxy", 1);
 
-const PORT = process.env.PORT || 10000;
+const PORT = Number(process.env.PORT) || 10000;
 
 const CLIENT_ID =
   process.env.DERIV_CLIENT_ID ||
@@ -28,7 +29,7 @@ const DERIV_APP_ID = process.env.DERIV_APP_ID || "";
 const BASE_URL = (
   process.env.BASE_URL ||
   "https://tradedollars.onrender.com"
-).replace(/\/$/, "");
+).replace(/\/+$/, "");
 
 const REDIRECT_URI = `${BASE_URL}/oauth/callback`;
 
@@ -38,25 +39,32 @@ const DERIV_API = "https://api.derivws.com";
 const AUTH_URL = "https://auth.deriv.com/oauth2/auth";
 const TOKEN_URL = "https://auth.deriv.com/oauth2/token";
 
+// Keep real-money trading disabled.
+const ENABLE_REAL_TRADING = false;
 
-const ENABLE_REAL_TRADING =
-  process.env.ENABLE_REAL_TRADING === "true";
+/* ---------------- STARTUP VALIDATION ---------------- */
 
-/* ---------------- BASIC CONFIGURATION ---------------- */
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-
-if (!SESSION_SECRET) {
+if (!SESSION_SECRET || SESSION_SECRET.length < 32) {
   console.error(
-    "WARNING: SESSION_SECRET is missing from environment variables."
+    "STARTUP ERROR: Set SESSION_SECRET in Render to a stable, random secret of at least 32 characters."
   );
+  process.exit(1);
 }
+
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  console.error("STARTUP ERROR: Invalid PORT.");
+  process.exit(1);
+}
+
+/* ---------------- MIDDLEWARE ---------------- */
+
+app.use(express.json({ limit: "100kb" }));
+app.use(express.urlencoded({ extended: false, limit: "100kb" }));
 
 app.use(
   session({
     name: "tradedollars.sid",
-    secret: SESSION_SECRET || crypto.randomBytes(32).toString("hex"),
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     proxy: true,
@@ -112,7 +120,8 @@ async function derivRequest(url, options = {}) {
     ...options,
     headers: {
       ...(options.headers || {})
-    }
+    },
+    signal: AbortSignal.timeout(15000)
   });
 
   const result = await response.json().catch(() => ({}));
@@ -122,7 +131,7 @@ async function derivRequest(url, options = {}) {
       result?.errors?.[0]?.message ||
       result?.error?.message ||
       result?.message ||
-      `Deriv API request failed (${response.status})`;
+      `Deriv API request failed (${response.status}).`;
 
     const error = new Error(apiMessage);
     error.status = response.status;
@@ -152,11 +161,18 @@ function accountListFromResponse(result) {
 
 function normalizeAccount(account) {
   return {
-    id: account.account_id || account.id || "",
-    balance: account.balance ?? 0,
+    id: String(
+      account.account_id ||
+      account.id ||
+      account.loginid ||
+      ""
+    ),
+    balance: account.balance ?? null,
     currency: account.currency || "USD",
-    account_type: String(account.account_type || "").toLowerCase(),
-    status: account.status || "active"
+    account_type: String(
+      account.account_type || ""
+    ).toLowerCase(),
+    status: String(account.status || "active").toLowerCase()
   };
 }
 
@@ -172,7 +188,9 @@ async function getDemoAccount(req) {
   const accounts = accountListFromResponse(result);
 
   const demo = accounts.find(account => {
-    return String(account.account_type || "").toLowerCase() === "demo";
+    return (
+      String(account.account_type || "").toLowerCase() === "demo"
+    );
   });
 
   if (!demo) {
@@ -186,8 +204,24 @@ async function getDemoAccount(req) {
 
   const account = normalizeAccount(demo);
 
+  if (!account.id) {
+    const error = new Error(
+      "Deriv returned a demo account without an account ID."
+    );
+
+    error.status = 502;
+    throw error;
+  }
+
+  // Store only the selected demo account in this session.
   req.session.accountId = account.id;
-  req.session.account = account;
+  req.session.account = {
+    account_id: account.id,
+    account_type: "demo",
+    balance: account.balance,
+    currency: account.currency,
+    status: account.status
+  };
 
   return account;
 }
@@ -195,47 +229,65 @@ async function getDemoAccount(req) {
 function sendApiError(res, error) {
   console.error("API error:", error.message);
 
-  return res.status(error.status || 500).json({
-    error: error.message || "Server error",
-    ...(error.details ? { details: error.details } : {})
+  const status = Number(error.status);
+
+  return res.status(
+    status >= 400 && status <= 599 ? status : 500
+  ).json({
+    error: error.message || "Server error."
   });
+}
+
+function requireDemoMode(req, res, next) {
+  const mode = String(req.query.mode || "demo").toLowerCase();
+
+  if (mode !== "demo") {
+    return res.status(403).json({
+      error: "Only demo-account mode is permitted. Real-money trading is disabled."
+    });
+  }
+
+  next();
 }
 
 /* ---------------- HEALTH ---------------- */
 
 app.get("/health", (req, res) => {
+  res.set("Cache-Control", "no-store");
+
   res.json({
     ok: true,
     app: "Tradedollars",
-    real_trading_enabled: ENABLE_REAL_TRADING
+    real_trading_enabled: false
   });
 });
 
 /* ---------------- FRONTEND CONFIG ---------------- */
-
 
 app.get("/api/config", (req, res) => {
   res.set("Cache-Control", "no-store");
 
   res.json({
     configured: Boolean(
-      CLIENT_ID && DERIV_APP_ID && BASE_URL && SESSION_SECRET
+      CLIENT_ID &&
+      DERIV_APP_ID &&
+      BASE_URL &&
+      SESSION_SECRET
     ),
     app_id: DERIV_APP_ID,
-    real_trading_enabled: ENABLE_REAL_TRADING
+    real_trading_enabled: false
   });
 });
-
 
 /* ---------------- DERIV LOGIN ---------------- */
 
 app.get("/login", (req, res) => {
   if (!CLIENT_ID) {
     return res.status(500).send(
-      "Deriv OAuth is not configured. Check the CLIENT_ID environment variable."
+      "Deriv OAuth is not configured. Check DERIV_CLIENT_ID in Render."
     );
   }
-console.log("LOGIN: /login route reached");
+
   const state = randomString(24);
   const verifier = randomString(64);
   const challenge = sha256Base64Url(verifier);
@@ -255,11 +307,14 @@ console.log("LOGIN: /login route reached");
 
   req.session.save(error => {
     if (error) {
-      console.error("Could not save login session:", error);
-      return res.status(500).send("Could not start Deriv login.");
+      console.error("Could not save login session:", error.message);
+
+      return res.status(500).send(
+        "Could not start Deriv login. Check the server logs."
+      );
     }
 
-    res.redirect(url.toString());
+    return res.redirect(url.toString());
   });
 });
 
@@ -269,16 +324,19 @@ app.get("/oauth/callback", async (req, res) => {
   try {
     if (req.query.error) {
       return res.status(400).send(
-        `Deriv login failed: ${String(req.query.error_description || req.query.error)}`
+        "Deriv login failed. Please return to Tradedollars and try again."
       );
     }
 
     const code = req.query.code;
     const returnedState = req.query.state;
 
-    if (!code || !returnedState) {
+    if (
+      typeof code !== "string" ||
+      typeof returnedState !== "string"
+    ) {
       return res.status(400).send(
-        "Missing authorization code or state."
+        "Missing authorization code or state. Please log in again."
       );
     }
 
@@ -307,24 +365,20 @@ app.get("/oauth/callback", async (req, res) => {
       body: new URLSearchParams({
         grant_type: "authorization_code",
         client_id: CLIENT_ID,
-        code: String(code),
+        code,
         redirect_uri: REDIRECT_URI,
         code_verifier: verifier
-      })
+      }),
+      signal: AbortSignal.timeout(15000)
     });
 
     const tokenData = await tokenResponse.json().catch(() => ({}));
-    console.log("OAUTH: token exchange response", {
-  httpStatus: tokenResponse.status,
-  hasAccessToken: Boolean(tokenData.access_token),
-  hasError: Boolean(tokenData.error)
-});
 
     if (!tokenResponse.ok || !tokenData.access_token) {
-      console.error(
-        "OAuth token exchange failed:",
-        tokenData.error || tokenData.message || tokenResponse.status
-      );
+      console.error("OAuth token exchange failed:", {
+        status: tokenResponse.status,
+        error: tokenData.error || tokenData.message || "Unknown error"
+      });
 
       return res.status(502).send(
         "Could not complete Deriv login. Please try again."
@@ -332,6 +386,7 @@ app.get("/oauth/callback", async (req, res) => {
     }
 
     req.session.accessToken = tokenData.access_token;
+
     req.session.tokenExpiresAt = tokenData.expires_in
       ? Date.now() + Number(tokenData.expires_in) * 1000
       : null;
@@ -342,23 +397,24 @@ app.get("/oauth/callback", async (req, res) => {
     delete req.session.account;
 
     req.session.save(error => {
-      console.log("LOGIN: session save callback completed", {
-  failed: Boolean(error)
-});
       if (error) {
-        console.error("Could not save authenticated session:", error);
+        console.error(
+          "Could not save authenticated session:",
+          error.message
+        );
+
         return res.status(500).send(
-          "Login succeeded but the session could not be saved."
+          "Login succeeded but the session could not be saved. Please try again."
         );
       }
 
-      res.redirect("/");
+      return res.redirect("/");
     });
   } catch (error) {
     console.error("OAuth callback error:", error.message);
 
-    res.status(500).send(
-      "An error occurred while completing Deriv login."
+    return res.status(500).send(
+      "An error occurred while completing Deriv login. Please try again."
     );
   }
 });
@@ -372,67 +428,45 @@ app.get("/api/session", (req, res) => {
 
   res.json({
     authenticated,
-    account_id: req.session?.accountId || null,
-    account: req.session?.account || null
+    account_id: authenticated
+      ? req.session.accountId || null
+      : null,
+    account: authenticated
+      ? req.session.account || null
+      : null
   });
 });
 
-/* ---------------- DEMO ACCOUNT ---------------- */
+/* ---------------- ACCOUNT DETAILS ---------------- */
 
+app.get(
+  "/api/account",
+  requireLogin,
+  requireDemoMode,
+  async (req, res) => {
+    res.set("Cache-Control", "no-store");
 
-app.get("/api/account", requireLogin, async (req, res) => {
-  res.set("Cache-Control", "no-store");
+    try {
+      const account = await getDemoAccount(req);
 
-  try {
-    const requestedMode =
-      String(req.query.mode || "demo").toLowerCase();
-
-    if (!["demo", "real"].includes(requestedMode)) {
-      return res.status(400).json({
-        error: "Invalid account mode."
+      return res.json({
+        connected: true,
+        account: {
+          account_id: account.id,
+          account_type: "demo",
+          balance: account.balance,
+          currency: account.currency,
+          status: account.status
+        },
+        real_trading_enabled: false
       });
+    } catch (error) {
+      return sendApiError(res, error);
     }
-
-    
-
-    const result = await derivRequest(
-      `${DERIV_API}/trading/v1/options/accounts`,
-      {
-        method: "GET",
-        headers: bearerHeaders(req)
-      }
-    );
-
-    const accounts = accountListFromResponse(result);
-
-    const selected = accounts.find(account =>
-      String(account.account_type || "").toLowerCase() === requestedMode
-    );
-
-    if (!selected) {
-      return res.status(404).json({
-        error: `No ${requestedMode} Options account was found.`
-      });
-    }
-
-    const account = normalizeAccount(selected);
-
-    res.json({
-      connected: true,
-      account: {
-        account_id: account.id,
-        account_type: account.account_type,
-        balance: account.balance,
-        currency: account.currency,
-        status: account.status
-      }
-    });
-  } catch (error) {
-    sendApiError(res, error);
   }
-});
+);
 
-/* -------- TEMPORARY ACCOUNT VERIFICATION -------- */
+/* ---------------- ACCOUNT VERIFICATION ---------------- */
 
 app.get("/api/accounts-check", requireLogin, async (req, res) => {
   res.set("Cache-Control", "no-store");
@@ -448,262 +482,103 @@ app.get("/api/accounts-check", requireLogin, async (req, res) => {
 
     const accounts = accountListFromResponse(result);
 
-    res.json({
+    return res.json({
       verified: true,
       count: accounts.length,
-      accounts: accounts.map(account => {
-        const normalized = normalizeAccount(account);
+      accounts: accounts.map(item => {
+        const account = normalizeAccount(item);
 
         return {
-          account_type: normalized.account_type,
-          currency: normalized.currency,
-          status: normalized.status,
-          account_id: normalized.id
-            ? "..." + normalized.id.slice(-4)
+          account_type: account.account_type,
+          currency: account.currency,
+          status: account.status,
+          account_id: account.id
+            ? "..." + account.id.slice(-4)
             : null
         };
-      })
+      }),
+      real_trading_enabled: false
     });
   } catch (error) {
-    sendApiError(res, error);
+    return sendApiError(res, error);
   }
 });
 
-/* -------- REAL ACCOUNT CONNECTION CHECK -------- */
+/* ---------------- REAL ACCOUNT SAFETY BLOCK ---------------- */
+
+// Real account checks and real WebSocket credentials are deliberately
+// unavailable while real-money trading is disabled.
 
 app.get(
   "/api/real-connection-check",
   requireLogin,
-  async (req, res) => {
+  (req, res) => {
     res.set("Cache-Control", "no-store");
 
-    try {
-      const result = await derivRequest(
-        `${DERIV_API}/trading/v1/options/accounts`,
-        {
-          method: "GET",
-          headers: bearerHeaders(req)
-        }
-      );
-
-      const accounts = accountListFromResponse(result);
-
-      const realAccount = accounts.find(account =>
-        String(account.account_type || "").toLowerCase() === "real"
-      );
-
-      if (!realAccount) {
-        return res.status(404).json({
-          verified: false,
-          error: "No real Options trading account was found."
-        });
-      }
-
-      const account = normalizeAccount(realAccount);
-
-      if (!account.id) {
-        return res.status(400).json({
-          verified: false,
-          error: "Real account ID is missing."
-        });
-      }
-
-      const otpResult = await derivRequest(
-        `${DERIV_API}/trading/v1/options/accounts/${encodeURIComponent(account.id)}/otp`,
-        {
-          method: "POST",
-          headers: bearerHeaders(req)
-        }
-      );
-
-      const data = otpResult?.data || otpResult;
-      const wsUrl = data.url || data.ws_url || null;
-
-      if (!wsUrl) {
-        return res.status(502).json({
-          verified: false,
-          error: "Deriv did not return a WebSocket URL."
-        });
-      }
-
-      let parsedUrl;
-
-      try {
-        parsedUrl = new URL(wsUrl);
-      } catch {
-        return res.status(502).json({
-          verified: false,
-          error: "Invalid WebSocket URL."
-        });
-      }
-
-      const validRealUrl =
-        parsedUrl.protocol === "wss:" &&
-        parsedUrl.hostname === "api.derivws.com" &&
-        parsedUrl.pathname === "/trading/v1/options/ws/real" &&
-        parsedUrl.searchParams.has("otp");
-
-      if (!validRealUrl) {
-        return res.status(403).json({
-          verified: false,
-          error: "Deriv did not return the expected real-account endpoint."
-        });
-      }
-
-      res.json({
-        verified: true,
-        account_type: "real",
-        account_id: "..." + account.id.slice(-4),
-        currency: account.currency,
-        status: account.status,
-        real_endpoint_verified: true,
-        socket_opened: false,
-        order_placed: false,
-        real_trading_enabled: ENABLE_REAL_TRADING
-      });
-    } catch (error) {
-      sendApiError(res, error);
-    }
+    return res.status(403).json({
+      verified: false,
+      connected: false,
+      error: "Real-account connection checks are disabled while real-money trading is off.",
+      real_trading_enabled: false,
+      socket_opened: false,
+      order_placed: false
+    });
   }
 );
-
-/* ---------------- REAL TRADING CONNECTION ---------------- */
 
 app.get(
   "/api/real-trading-connection",
   requireLogin,
-  async (req, res) => {
+  (req, res) => {
     res.set("Cache-Control", "no-store");
 
-    try {
-      if (!ENABLE_REAL_TRADING) {
-        return res.status(403).json({
-          connected: false,
-          error: "Real trading is not enabled in server configuration."
-        });
-      }
-
-      const result = await derivRequest(
-        `${DERIV_API}/trading/v1/options/accounts`,
-        {
-          method: "GET",
-          headers: bearerHeaders(req)
-        }
-      );
-
-      const accounts = accountListFromResponse(result);
-
-      const realAccount = accounts.find(account =>
-        String(account.account_type || "").toLowerCase() === "real"
-      );
-
-      if (!realAccount || !realAccount.account_id) {
-        return res.status(404).json({
-          connected: false,
-          error: "A verified real Options account was not found."
-        });
-      }
-
-      const account = normalizeAccount(realAccount);
-
-      if (account.status !== "active") {
-        return res.status(403).json({
-          connected: false,
-          error: "The real account is not active."
-        });
-      }
-
-      const otpResult = await derivRequest(
-        `${DERIV_API}/trading/v1/options/accounts/${encodeURIComponent(account.id)}/otp`,
-        {
-          method: "POST",
-          headers: bearerHeaders(req)
-        }
-      );
-
-      const data = otpResult?.data || otpResult;
-      const wsUrl = data.url || data.ws_url || data.websocket_url;
-
-      if (!wsUrl) {
-        return res.status(502).json({
-          connected: false,
-          error: "Deriv did not return a WebSocket URL."
-        });
-      }
-
-      let parsedUrl;
-
-      try {
-        parsedUrl = new URL(wsUrl);
-      } catch {
-        return res.status(502).json({
-          connected: false,
-          error: "Deriv returned an invalid WebSocket URL."
-        });
-      }
-
-      if (
-        parsedUrl.protocol !== "wss:" ||
-        parsedUrl.hostname !== "api.derivws.com" ||
-        parsedUrl.pathname !== "/trading/v1/options/ws/real" ||
-        !parsedUrl.searchParams.has("otp")
-      ) {
-        return res.status(403).json({
-          connected: false,
-          error: "The returned URL is not the expected real-account endpoint."
-        });
-      }
-
-      return res.json({
-        connected: true,
-        account_type: "real",
-        account_id: account.id,
-        currency: account.currency,
-        balance: account.balance,
-        ws_url: wsUrl,
-        real_trading_enabled: true
-      });
-    } catch (error) {
-      console.error("Real trading connection error:", error.message);
-
-return res.status(500).json({
-  connected: false,
-  error: "Unable to establish the real-account connection. Please check the server logs."
-});
-    }
+    return res.status(403).json({
+      connected: false,
+      error: "Real-money trading is disabled.",
+      real_trading_enabled: false
+    });
   }
 );
 
-/* ---------------- ACCOUNT STATUS ---------------- */
+/* ---------------- LEGACY ACCOUNT STATUS ---------------- */
 
 app.get("/account-status", requireLogin, async (req, res) => {
+  res.set("Cache-Control", "no-store");
+
   try {
     const account = await getDemoAccount(req);
 
-    res.json({
+    return res.json({
       connected: true,
-      account
+      account: {
+        account_id: account.id,
+        account_type: "demo",
+        balance: account.balance,
+        currency: account.currency,
+        status: account.status
+      }
     });
   } catch (error) {
-    sendApiError(res, error);
+    return sendApiError(res, error);
   }
 });
 
-/* ---------------- DEMO TRADING CONNECTION ---------------- */
+/* ---------------- DEMO QUOTE CONNECTION ---------------- */
 
 app.get(
   "/api/trading-connection",
   requireLogin,
+  requireDemoMode,
   async (req, res) => {
     res.set("Cache-Control", "no-store");
 
     try {
-      // Always resolve a demo account from Deriv.
       const account = await getDemoAccount(req);
 
-      if (!account.id) {
-        return res.status(400).json({
-          error: "Demo account ID is missing."
+      if (account.status !== "active") {
+        return res.status(403).json({
+          connected: false,
+          error: "The demo account is not active."
         });
       }
 
@@ -725,35 +600,36 @@ app.get(
 
       if (!wsUrl) {
         return res.status(502).json({
+          connected: false,
           error: "Deriv did not return a WebSocket URL."
         });
       }
 
-
-      // Enforce the exact demo WebSocket endpoint.
-      let parsedWsUrl;
+      let parsedUrl;
 
       try {
-        parsedWsUrl = new URL(wsUrl);
+        parsedUrl = new URL(wsUrl);
       } catch {
         return res.status(502).json({
-          error: "Invalid trading WebSocket URL."
+          connected: false,
+          error: "Deriv returned an invalid WebSocket URL."
         });
       }
 
-      if (
-        parsedWsUrl.protocol !== "wss:" ||
-        parsedWsUrl.hostname !== "api.derivws.com" ||
-        parsedWsUrl.pathname !==
-          "/trading/v1/options/ws/demo" ||
-        !parsedWsUrl.searchParams.has("otp")
-      ) {
+      const validDemoUrl =
+        parsedUrl.protocol === "wss:" &&
+        parsedUrl.hostname === "api.derivws.com" &&
+        parsedUrl.pathname === "/trading/v1/options/ws/demo" &&
+        parsedUrl.searchParams.has("otp");
+
+      if (!validDemoUrl) {
         return res.status(403).json({
-          error: "Only authenticated demo trading is permitted."
+          connected: false,
+          error: "Deriv did not return the expected demo WebSocket endpoint."
         });
       }
 
-      res.json({
+      return res.json({
         connected: true,
         account_id: account.id,
         account_type: "demo",
@@ -761,7 +637,7 @@ app.get(
         real_trading_enabled: false
       });
     } catch (error) {
-      sendApiError(res, error);
+      return sendApiError(res, error);
     }
   }
 );
@@ -775,7 +651,7 @@ function destroySession(req, res) {
 
   req.session.destroy(error => {
     if (error) {
-      console.error("Logout error:", error);
+      console.error("Logout error:", error.message);
 
       return res.status(500).json({
         success: false,
@@ -789,19 +665,42 @@ function destroySession(req, res) {
       sameSite: "lax"
     });
 
-    res.json({ success: true });
+    return res.json({ success: true });
   });
 }
 
 app.get("/logout", destroySession);
 app.post("/logout", destroySession);
 
+/* ---------------- PROTECT SERVER FILES ---------------- */
+
+// Do not serve server-side configuration or source files to visitors.
+app.use((req, res, next) => {
+  const blockedFiles = new Set([
+    "/server.js",
+    "/package.json",
+    "/package-lock.json",
+    "/.env"
+  ]);
+
+  if (blockedFiles.has(req.path)) {
+    return res.sendStatus(404);
+  }
+
+  next();
+});
+
 /* ---------------- STATIC WEBSITE ---------------- */
 
 app.use(
   express.static(path.join(__dirname), {
     index: "index.html",
-    etag: true
+    dotfiles: "deny",
+    etag: true,
+    setHeaders(res) {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+    }
   })
 );
 
@@ -814,5 +713,5 @@ app.listen(PORT, () => {
   console.log(`OAuth redirect: ${REDIRECT_URI}`);
   console.log(`Deriv client configured: ${Boolean(CLIENT_ID)}`);
   console.log(`Deriv app ID configured: ${Boolean(DERIV_APP_ID)}`);
-  console.log(`Real-money trading enabled: ${ENABLE_REAL_TRADING}`);
+  console.log("Real-money trading enabled: false");
 });
