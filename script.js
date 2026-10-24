@@ -160,24 +160,14 @@ function connectPublicSocket() {
     ) {
       setStatus(
         "marketStatus",
-        "No market list received yet. Check connection and console.",
+        "No market list received. Check the connection.",
         "#ef4444"
       );
     }
   }, 12000);
-socket.addEventListener("open", () => {
-  if (state.tradingSocket !== socket) return;
 
-  if (
-    state.activeTradingMode !== "demo" ||
-    $("accountMode")?.value !== "demo"
-  ) {
-    state.tradingSocket = null;
-    state.tradingConnected = false;
-    state.tradingConnecting = false;
-    socket.close();
-    return;
-  }
+  socket.addEventListener("open", () => {
+    if (state.socket !== socket) return;
 
     state.connected = true;
 
@@ -187,10 +177,14 @@ socket.addEventListener("open", () => {
       "#22c55e"
     );
 
-    sendJson(socket, {
+    const sent = sendJson(socket, {
       active_symbols: "brief",
       req_id: ++state.requestId
     });
+
+    if (sent === false) {
+      console.error("Could not request active markets.");
+    }
   });
 
   socket.addEventListener("message", event => {
@@ -221,7 +215,7 @@ socket.addEventListener("open", () => {
 
       setStatus(
         "priceStatus",
-        "Market data unavailable. See console for details.",
+        "Market data unavailable. Check the error.",
         "#ef4444"
       );
 
@@ -252,6 +246,8 @@ socket.addEventListener("open", () => {
   socket.addEventListener("close", event => {
     if (state.socket !== socket) return;
 
+    clearTimeout(state.responseTimer);
+
     state.connected = false;
     state.subscribed = false;
     state.socket = null;
@@ -270,16 +266,8 @@ socket.addEventListener("open", () => {
 
     scheduleReconnect();
   });
-}
-
-function scheduleReconnect() {
-  clearTimeout(state.reconnectTimer);
-
-  state.reconnectTimer = setTimeout(() => {
-    if (!state.connected) connectPublicSocket();
-  }, 3000);
-}
-
+       }
+   
 /* ---------------- MARKET LIST ---------------- */
 
 function processActiveSymbols(symbols) {
