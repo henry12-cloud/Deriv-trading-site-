@@ -437,27 +437,81 @@ app.get("/api/session", (req, res) => {
   });
 });
 
+
 /* ---------------- ACCOUNT DETAILS ---------------- */
 
 app.get(
   "/api/account",
   requireLogin,
-  requireDemoMode,
   async (req, res) => {
     res.set("Cache-Control", "no-store");
 
     try {
-      const account = await getDemoAccount(req);
+      const mode = String(
+        req.query.mode || "demo"
+      ).toLowerCase();
+
+      if (mode !== "demo" && mode !== "real") {
+        return res.status(400).json({
+          connected: false,
+          error: "Invalid account mode.",
+          real_trading_enabled: false
+        });
+      }
+
+      let account;
+
+      if (mode === "demo") {
+        // Preserve the existing demo-account selection.
+        account = await getDemoAccount(req);
+      } else {
+        // Read-only lookup: do not store the real account
+        // as the session's selected trading account.
+        const result = await derivRequest(
+          `${DERIV_API}/trading/v1/options/accounts`,
+          {
+            method: "GET",
+            headers: bearerHeaders(req)
+          }
+        );
+
+        const accounts = accountListFromResponse(result);
+
+        const realAccount = accounts.find(item => {
+          return (
+            String(item.account_type || "").toLowerCase() === "real"
+          );
+        });
+
+        if (!realAccount) {
+          return res.status(404).json({
+            connected: false,
+            error: "No real Options account was returned by Deriv.",
+            real_trading_enabled: false
+          });
+        }
+
+        account = normalizeAccount(realAccount);
+
+        if (!account.id) {
+          return res.status(502).json({
+            connected: false,
+            error: "Deriv returned a real account without an account ID.",
+            real_trading_enabled: false
+          });
+        }
+      }
 
       return res.json({
         connected: true,
         account: {
           account_id: account.id,
-          account_type: "demo",
+          account_type: mode,
           balance: account.balance,
           currency: account.currency,
           status: account.status
         },
+        read_only: mode === "real",
         real_trading_enabled: false
       });
     } catch (error) {
