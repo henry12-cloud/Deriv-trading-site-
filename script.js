@@ -1,16 +1,15 @@
 
 /* =========================================================
    TRADEDOLLARS — SCRIPT.JS
-   Public market data + digit analysis + signal-only monitoring
-   No orders are placed. Real-money trading remains disabled.
+   Live market data + digit analysis + demo quote preview
+   REAL-MONEY TRADING: DISABLED
+   ORDER PLACEMENT: DISABLED
    ========================================================= */
 
 "use strict";
 
 /* ---------------- CONFIGURATION ---------------- */
 
-// Public testing app ID for the legacy Deriv WebSocket API.
-// This is NOT your OAuth client ID or trading authorization.
 const PUBLIC_WS_URL =
   "wss://api.derivws.com/trading/v1/options/ws/public";
 
@@ -20,36 +19,33 @@ const DEFAULT_MARKET_NAME = "Volatility 100 (1s) Index";
 const MAX_DIGIT_HISTORY = 2000;
 const MAX_PRICE_HISTORY = 100;
 const MAX_OBSERVATIONS = 100;
+const QUOTE_MAX_AGE = 30000;
 
 const state = {
   socket: null,
-     tradingSocket: null,
-  tradingConnecting: false,
-  tradingConnected: false,
+  tradingSocket: null,
 
-  realTradingSocket: null,
-realTradingConnecting: false,
-realTradingConnected: false,
-activeTradingMode: "demo",
-  
+  connected: false,
+  subscribed: false,
+  tradingConnected: false,
+  tradingConnecting: false,
+
   reconnectTimer: null,
   responseTimer: null,
   requestId: 0,
-// Demo quote and purchase tracking
-tradeRequestId: 0,
-pendingProposalReqId: null,
-pendingProposalDetails: null,
-pendingBuyReqId: null,
-latestProposal: null,
+  tradeRequestId: 0,
 
-  connected: false,
+  pendingProposalReqId: null,
+  pendingProposalDetails: null,
+  latestProposal: null,
+
+  activeTradingMode: "demo",
   monitoring: true,
-  subscribed: false,
 
   symbol: DEFAULT_SYMBOL,
   marketName: DEFAULT_MARKET_NAME,
-
   activeSymbols: [],
+
   ticks: 0,
   latestPrice: null,
   latestDigit: null,
@@ -83,12 +79,36 @@ function setStatus(id, message, color) {
 
 function sendJson(socket, payload) {
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    console.warn("WebSocket is not open; request not sent.");
     return false;
   }
 
-  socket.send(JSON.stringify(payload));
-  return true;
+  try {
+    socket.send(JSON.stringify(payload));
+    return true;
+  } catch (error) {
+    console.error("WebSocket send failed:", error);
+    return false;
+  }
+}
+
+function clearQuote(message) {
+  state.latestProposal = null;
+  state.pendingProposalReqId = null;
+  state.pendingProposalDetails = null;
+
+  setText("quoteStake", "--");
+  setText("quotePayout", "--");
+
+  const button = $("confirmBuy");
+
+  if (button) {
+    button.disabled = true;
+    button.textContent = "ORDER PLACEMENT DISABLED";
+  }
+
+  if (message) {
+    setStatus("quoteStatus", message, "#f59e0b");
+  }
 }
 
 /* ---------------- PUBLIC MARKET CONNECTION ---------------- */
@@ -128,14 +148,7 @@ function connectPublicSocket() {
     socket = new WebSocket(PUBLIC_WS_URL);
     state.socket = socket;
   } catch (error) {
-    console.error("Could not create market WebSocket:", error);
-
-    setStatus(
-      "marketStatus",
-      "Could not start market connection. Retrying...",
-      "#ef4444"
-    );
-
+    console.error("Could not create public WebSocket:", error);
     scheduleReconnect();
     return;
   }
@@ -143,17 +156,12 @@ function connectPublicSocket() {
   state.responseTimer = setTimeout(() => {
     if (
       state.socket === socket &&
-      socket.readyState === WebSocket.OPEN &&
       state.activeSymbols.length === 0
     ) {
       setStatus(
         "marketStatus",
-        "Connected, but no market list received. Check console for errors.",
+        "No market list received yet. Check connection and console.",
         "#ef4444"
-      );
-
-      console.warn(
-        "No active_symbols response received within 12 seconds."
       );
     }
   }, 12000);
@@ -169,10 +177,10 @@ function connectPublicSocket() {
       "#22c55e"
     );
 
-sendJson(socket, {
-  active_symbols: "brief",
-  req_id: ++state.requestId
-});
+    sendJson(socket, {
+      active_symbols: "brief",
+      req_id: ++state.requestId
+    });
   });
 
   socket.addEventListener("message", event => {
@@ -182,20 +190,18 @@ sendJson(socket, {
 
     try {
       message = JSON.parse(event.data);
-       setStatus("marketStatus", "Market server response received.", "#f59e0b");
-console.log("PUBLIC MARKET RESPONSE:", message);
     } catch (error) {
-      console.error("Invalid WebSocket response:", event.data);
+      console.error("Invalid public WebSocket response:", error);
       return;
     }
 
     if (message.error) {
-      console.error("Deriv public response error:", message.error);
-
       const errorText =
         message.error.message ||
         message.error.code ||
         "Unknown market-data error";
+
+      console.error("Public market API error:", message.error);
 
       setStatus(
         "marketStatus",
@@ -205,7 +211,7 @@ console.log("PUBLIC MARKET RESPONSE:", message);
 
       setStatus(
         "priceStatus",
-        "Market data error. See console for details.",
+        "Market data unavailable. See console for details.",
         "#ef4444"
       );
 
@@ -214,27 +220,21 @@ console.log("PUBLIC MARKET RESPONSE:", message);
 
     if (message.msg_type === "active_symbols") {
       clearTimeout(state.responseTimer);
-
       processActiveSymbols(message.active_symbols);
       return;
     }
 
     if (message.msg_type === "tick" && message.tick) {
       processTick(message.tick);
-      return;
-    }
-
-    if (message.subscription && message.msg_type === "forget") {
-      console.log("Subscription ended:", message);
     }
   });
 
-  socket.addEventListener("error", event => {
-    console.error("Public market WebSocket error:", event);
+  socket.addEventListener("error", error => {
+    console.error("Public market WebSocket error:", error);
 
     setStatus(
       "marketStatus",
-      "Market connection error. Retrying if disconnected...",
+      "Market connection error. Reconnecting...",
       "#ef4444"
     );
   });
@@ -244,6 +244,7 @@ console.log("PUBLIC MARKET RESPONSE:", message);
 
     state.connected = false;
     state.subscribed = false;
+    state.socket = null;
 
     setStatus(
       "marketStatus",
@@ -265,9 +266,7 @@ function scheduleReconnect() {
   clearTimeout(state.reconnectTimer);
 
   state.reconnectTimer = setTimeout(() => {
-    if (!state.connected) {
-      connectPublicSocket();
-    }
+    if (!state.connected) connectPublicSocket();
   }, 3000);
 }
 
@@ -298,27 +297,27 @@ function processActiveSymbols(symbols) {
     }))
     .filter(item => item.symbol && item.name);
 
-  console.log(
-    "Available markets received:",
-    state.activeSymbols.length
-  );
+  setText("marketCount", state.activeSymbols.length);
 
-  setText(
-    "marketCount",
-    state.activeSymbols.length
-  );
+  if (!state.activeSymbols.length) {
+    setStatus(
+      "marketStatus",
+      "Connected, but no markets were returned.",
+      "#ef4444"
+    );
 
-  setStatus(
-    "marketStatus",
-    state.activeSymbols.length
-      ? `${state.activeSymbols.length} markets loaded`
-      : "Connected, but no markets were returned.",
-    state.activeSymbols.length ? "#22c55e" : "#ef4444"
-  );
+    setStatus(
+      "priceStatus",
+      "No markets available to subscribe to.",
+      "#ef4444"
+    );
+
+    return;
+  }
 
   const marketSelect = $("marketSelect");
 
-  if (marketSelect && state.activeSymbols.length) {
+  if (marketSelect) {
     const previousSymbol = state.symbol;
 
     marketSelect.innerHTML = "";
@@ -330,34 +329,39 @@ function processActiveSymbols(symbols) {
       marketSelect.appendChild(option);
     });
 
-    const preferredMarket = state.activeSymbols.find(
-      market => market.symbol === previousSymbol
-    );
-
-    const firstMarket = state.activeSymbols[0];
-
-    const chosenMarket = preferredMarket || firstMarket;
+    const chosenMarket =
+      state.activeSymbols.find(
+        market => market.symbol === previousSymbol
+      ) || state.activeSymbols[0];
 
     marketSelect.value = chosenMarket.symbol;
+    state.symbol = chosenMarket.symbol;
+    state.marketName = chosenMarket.name;
+  } else {
+    const chosenMarket =
+      state.activeSymbols.find(
+        market => market.symbol === state.symbol
+      ) || state.activeSymbols[0];
 
     state.symbol = chosenMarket.symbol;
     state.marketName = chosenMarket.name;
-
-    updateSelectedMarket();
   }
 
-  if (state.activeSymbols.length) {
-    subscribeToTicks();
-  } else {
-    setStatus(
-      "priceStatus",
-      "No available markets to subscribe to.",
-      "#ef4444"
-    );
-  }
+  updateSelectedMarket();
+
+  setStatus(
+    "marketStatus",
+    `${state.activeSymbols.length} markets loaded`,
+    "#22c55e"
+  );
+
+  subscribeToTicks();
 }
 
-/* ---------------- TICK SUBSCRIPTION ---------------- */
+function updateSelectedMarket() {
+  setText("selectedMarket", state.marketName);
+  setText("marketName", state.marketName);
+}
 
 function subscribeToTicks() {
   const socket = state.socket;
@@ -388,35 +392,18 @@ function changeMarket(symbol) {
     item => item.symbol === symbol
   );
 
-  if (!market) {
-    console.warn("Selected market was not found:", symbol);
-    return;
-  }
+  if (!market) return;
 
   state.symbol = market.symbol;
   state.marketName = market.name;
-  // Invalidate the previous quote whenever the market changes.
-  state.pendingProposalReqId = null;
-  state.latestProposal = null;
 
-  setText("quoteStake", "--");
-  setText("quotePayout", "--");
-
-  setStatus(
-    "quoteStatus",
-    "Market changed. Request a fresh demo quote.",
-    "#f59e0b"
-  );
-
-  setText(
-    "quoteDetails",
-    "Request a new quote for the selected market. No contract will be purchased."
-  );
   state.ticks = 0;
   state.latestPrice = null;
   state.latestDigit = null;
   state.digitHistory = [];
   state.priceHistory = [];
+
+  clearQuote("Market changed. Request a fresh demo quote if needed.");
 
   updateSelectedMarket();
   renderDigitHistory();
@@ -424,7 +411,7 @@ function changeMarket(symbol) {
   renderChart();
   updateSignal();
 
-  setText("tickCount", 0);
+  setText("tickCount", "0");
   setText("livePrice", "Waiting...");
   setText("liveDigit", "—");
 
@@ -440,12 +427,7 @@ function changeMarket(symbol) {
   }
 }
 
-function updateSelectedMarket() {
-  setText("selectedMarket", state.marketName);
-  setText("marketName", state.marketName);
-}
-
-/* ---------------- PROCESS LIVE TICKS ---------------- */
+/* ---------------- LIVE TICKS ---------------- */
 
 function processTick(tick) {
   if (!tick || tick.quote === undefined) return;
@@ -455,22 +437,19 @@ function processTick(tick) {
   if (!Number.isFinite(price)) return;
 
   const pipSize = Number.isInteger(Number(tick.pip_size))
-    ? Number(tick.pip_size)
+    ? Math.max(0, Math.min(10, Number(tick.pip_size)))
     : 2;
 
   const formattedPrice = price.toFixed(pipSize);
-  const lastCharacter = formattedPrice.slice(-1);
-  const digit = Number(lastCharacter);
+  const digit = Number(formattedPrice.slice(-1));
 
   if (!Number.isInteger(digit) || digit < 0 || digit > 9) {
-    console.warn("Could not extract final price digit:", formattedPrice);
     return;
   }
 
   state.connected = true;
   state.subscribed = true;
   state.ticks += 1;
-
   state.latestPrice = price;
   state.latestDigit = digit;
 
@@ -517,9 +496,7 @@ function processTick(tick) {
 /* ---------------- DIGIT HISTORY ---------------- */
 
 function renderDigitHistory() {
-  const container =
-    $("digitHistory") ||
-    $("recentDigits");
+  const container = $("digitHistory") || $("recentDigits");
 
   if (!container) return;
 
@@ -553,14 +530,13 @@ function renderDigitHistory() {
 
 /* ---------------- DIGIT ANALYSIS ---------------- */
 
-
 function renderDigitAnalysis() {
   const digits = state.digitHistory;
   const sampleSize = digits.length;
 
   setText("sampleSize", sampleSize);
 
-  if (sampleSize === 0) {
+  if (!sampleSize) {
     setText("mostDigit", "--");
     setText("evenOdd", "--");
     setText("overUnder", "--");
@@ -570,6 +546,7 @@ function renderDigitAnalysis() {
       "Waiting for ticks to begin analysis.",
       "#f59e0b"
     );
+
     return;
   }
 
@@ -581,17 +558,14 @@ function renderDigitAnalysis() {
   let equalFiveCount = 0;
 
   digits.forEach(digit => {
-    counts[digit]++;
+    counts[digit] += 1;
 
-    if (digit % 2 === 0) {
-      evenCount++;
-    } else {
-      oddCount++;
-    }
+    if (digit % 2 === 0) evenCount += 1;
+    else oddCount += 1;
 
-    if (digit > 5) overFiveCount++;
-    else if (digit < 5) underFiveCount++;
-    else equalFiveCount++;
+    if (digit > 5) overFiveCount += 1;
+    else if (digit < 5) underFiveCount += 1;
+    else equalFiveCount += 1;
   });
 
   const percent = count =>
@@ -619,23 +593,22 @@ function renderDigitAnalysis() {
 
   setStatus(
     "analysisStatus",
-    `Based on ${sampleSize} observed ticks. Digit 5 occurred ${equalFiveCount} times and is excluded from both Over 5 and Under 5. These statistics do not predict the next digit.`,
+    `Based on ${sampleSize} observed ticks. Digit 5 occurred ${equalFiveCount} times and is excluded from both Over 5 and Under 5. Frequencies describe past data and do not predict the next digit.`,
     "#94a3b8"
   );
 }
 
-      
-/* ---------------- SIGNAL MONITOR ---------------- */
+/* ---------------- SIGNAL-ONLY MONITOR ---------------- */
 
 function updateSignal() {
-  setText("signal", "WAIT");
-  setText("signalValue", "WAIT");
+  setText("signal", "OBSERVE");
+  setText("signalValue", "OBSERVE");
 
   setText(
     "signalReason",
     state.digitHistory.length < 50
       ? `Collecting data: ${state.digitHistory.length}/50 ticks. No order will be placed.`
-      : "Observation only. Digit frequencies do not reliably predict the next outcome. No order will be placed."
+      : "Observation only. Past digit frequencies do not reliably predict the next outcome. No order will be placed."
   );
 
   setStatus(
@@ -646,25 +619,13 @@ function updateSignal() {
     state.monitoring ? "#22c55e" : "#f59e0b"
   );
 
-  
   const buyButton = $("confirmBuy");
 
   if (buyButton) {
-    const quote = state.latestProposal;
-
-    buyButton.disabled = !(
-      state.tradingConnected &&
-      quote &&
-      quote.id &&
-      state.pendingBuyReqId === null
-    );
-
-    buyButton.textContent = "CONFIRM DEMO BUY";
-    buyButton.title =
-      "Demo account only. Requires a fresh, valid quote.";
+    buyButton.disabled = true;
+    buyButton.textContent = "ORDER PLACEMENT DISABLED";
   }
 }
-
 
 /* ---------------- LIVE PRICE CHART ---------------- */
 
@@ -737,18 +698,14 @@ function renderChart() {
       padding -
       ((price - minimum) / range) * (height - padding * 2);
 
-    if (index === 0) {
-      context.moveTo(x, y);
-    } else {
-      context.lineTo(x, y);
-    }
+    if (index === 0) context.moveTo(x, y);
+    else context.lineTo(x, y);
   });
 
   context.stroke();
 
   context.fillStyle = "#94a3b8";
   context.font = "11px sans-serif";
-
   context.fillText(maximum.toFixed(2), 8, 13);
   context.fillText(minimum.toFixed(2), 8, height - 4);
 }
@@ -762,7 +719,7 @@ function recordObservation(note) {
     price: state.latestPrice,
     digit: state.latestDigit,
     ticks: state.ticks,
-    note
+    note: String(note || "Observation")
   };
 
   state.observations.unshift(observation);
@@ -775,9 +732,7 @@ function recordObservation(note) {
 }
 
 function renderObservations() {
-  const container =
-$("observationHistory");
-
+  const container = $("observationHistory");
   if (!container) return;
 
   container.innerHTML = "";
@@ -789,7 +744,6 @@ $("observationHistory");
 
   state.observations.forEach(item => {
     const row = document.createElement("div");
-
     row.style.padding = "8px";
     row.style.marginBottom = "6px";
     row.style.borderBottom = "1px solid #263449";
@@ -812,55 +766,56 @@ $("observationHistory");
   });
 }
 
-/* ---------------- DEMO TRADING SOCKET ---------------- */
+/* ---------------- DEMO CONNECTION FOR QUOTES ONLY ---------------- */
 
 async function connectTradingSocket() {
-  const existing = state.tradingSocket;
-
   if (
-    existing &&
+    state.tradingConnecting ||
     (
-      existing.readyState === WebSocket.OPEN ||
-      existing.readyState === WebSocket.CONNECTING
+      state.tradingSocket &&
+      (
+        state.tradingSocket.readyState === WebSocket.OPEN ||
+        state.tradingSocket.readyState === WebSocket.CONNECTING
+      )
     )
   ) {
     return;
   }
 
-  if (state.tradingConnecting) return;
+  if (state.activeTradingMode !== "demo") return;
 
   state.tradingConnecting = true;
 
   try {
     const response = await fetch("/api/trading-connection", {
       method: "GET",
-      credentials: "include",
+      credentials: "same-origin",
       cache: "no-store",
       headers: { Accept: "application/json" }
     });
 
     const data = await response.json();
 
-    if (!response.ok || !data.connected) {
+    if (
+      !response.ok ||
+      !data.connected ||
+      data.account_type !== "demo" ||
+      data.real_trading_enabled !== false
+    ) {
       throw new Error(
-        data.error || "Could not obtain demo connection."
+        data.error || "A verified demo connection was not returned."
       );
     }
 
-    // Accept only the exact authenticated demo endpoint.
     const url = new URL(data.ws_url);
 
     if (
-      data.account_type !== "demo" ||
-      data.real_trading_enabled !== false ||
       url.protocol !== "wss:" ||
       url.hostname !== "api.derivws.com" ||
       url.pathname !== "/trading/v1/options/ws/demo" ||
       !url.searchParams.has("otp")
     ) {
-      throw new Error(
-        "Demo-only connection verification failed."
-      );
+      throw new Error("The demo WebSocket URL failed validation.");
     }
 
     const socket = new WebSocket(data.ws_url);
@@ -873,363 +828,165 @@ async function connectTradingSocket() {
       state.tradingConnecting = false;
 
       setStatus(
-        "accountStatus",
-        "Demo account connected · trading socket ready",
+        "quoteStatus",
+        "Demo quote connection ready. Purchases remain disabled.",
+        "#22c55e"
+      );
+    });
+
+    socket.addEventListener("message", event => {
+      if (state.tradingSocket !== socket) return;
+
+      let message;
+
+      try {
+        message = JSON.parse(event.data);
+      } catch (error) {
+        console.error("Invalid demo response:", error);
+        return;
+      }
+
+      if (message.error) {
+        const errorText =
+          message.error.message ||
+          message.error.code ||
+          "Unknown demo API error";
+
+        if (message.req_id === state.pendingProposalReqId) {
+          state.pendingProposalReqId = null;
+          state.pendingProposalDetails = null;
+          state.latestProposal = null;
+
+          setStatus(
+            "quoteStatus",
+            "Quote failed: " + errorText,
+            "#ef4444"
+          );
+
+          setText("quoteStake", "--");
+          setText("quotePayout", "--");
+        } else {
+          console.warn("Demo API response error:", message.error);
+        }
+
+        return;
+      }
+
+      if (
+        message.msg_type !== "proposal" ||
+        !message.proposal ||
+        message.req_id !== state.pendingProposalReqId
+      ) {
+        return;
+      }
+
+            const proposal = message.proposal;
+      const askPrice = Number(proposal.ask_price);
+      const payout = Number(proposal.payout);
+      const details = state.pendingProposalDetails;
+
+      state.pendingProposalReqId = null;
+      state.pendingProposalDetails = null;
+
+      if (
+        !proposal.id ||
+        !Number.isFinite(askPrice) ||
+        askPrice <= 0 ||
+        !Number.isFinite(payout)
+      ) {
+        state.latestProposal = null;
+
+        setStatus(
+          "quoteStatus",
+          "Quote response incomplete. Request a new quote.",
+          "#ef4444"
+        );
+
+        return;
+      }
+
+      state.latestProposal = {
+        id: proposal.id,
+        askPrice,
+        payout,
+        receivedAt: Date.now(),
+        symbol: details ? details.symbol : state.symbol,
+        amount: details ? details.amount : null,
+        contractType: details ? details.contractType : null,
+        duration: details ? details.duration : null,
+        barrier: details ? details.barrier : null,
+        currency: proposal.currency || "USD"
+      };
+
+      setText("quoteStake", askPrice.toFixed(2));
+      setText("quotePayout", payout.toFixed(2));
+
+      setStatus(
+        "quoteStatus",
+        "Demo quote received. This is a quote only; no purchase was made.",
         "#22c55e"
       );
 
-      console.log("Authenticated demo trading socket connected.");
+      setText(
+        "quoteDetails",
+        proposal.longcode ||
+          "Quote received. Order placement is disabled."
+      );
+
+      updateSignal();
     });
 
-        socket.addEventListener("message", event => {
+    socket.addEventListener("error", error => {
       if (state.tradingSocket !== socket) return;
 
-      try {
-        const message = JSON.parse(event.data);
-         console.log("PUBLIC MARKET RESPONSE:", message);
+      console.error("Demo quote socket error:", error);
 
-if (
-  message.req_id === state.pendingBuyReqId &&
-  (
-    message.msg_type === "buy" ||
-    message.error
-  )
-) {
-  const button = $("confirmBuy");
-  state.pendingBuyReqId = null;
+      state.tradingConnected = false;
 
-    if (message.error) {
-    state.latestProposal = null;
-
-    if (button) {
-      button.disabled = true;
-      button.textContent = "Purchase failed — request a new quote";
-    }
-
-    const status = $("quoteStatus");
-    if (status) {
-      status.textContent =
-        "Demo purchase rejected: " +
-        (message.error.message || "Unknown API error");
-    }
-
-    return;
-  }
-
-  const purchase = message.buy;
-
-  if (!purchase || !purchase.contract_id) {
-    state.latestProposal = null;
-
-    if (button) {
-      button.disabled = true;
-      button.textContent = "Purchase unverified — request a new quote";
-    }
-
-    const status = $("quoteStatus");
-    if (status) {
-      status.textContent =
-        "No confirmed contract ID was returned. Check your demo account.";
-    }
-
-    return;
-  }
-
-  state.latestProposal = null;
-
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Demo purchase confirmed";
-  }
-
-  const status = $("quoteStatus");
-  if (status) {
-    status.textContent =
-"DEMO PURCHASE CONFIRMED — Contract ID: " +
-      purchase.contract_id +
-      " | Buy price: " +
-      (purchase.buy_price ?? "—");
-  }
-
-  const details = $("quoteDetails");
-  if (details) {
-    details.textContent =
-      "Demo contract ID: " + purchase.contract_id +
-      " | Buy price: " + (purchase.buy_price ?? "—");
-  }
-
-  return;
-         }
-     
-        if (message.error) {
-          const errorText =
-            message.error.message ||
-            message.error.code ||
-            "Unknown demo API error";
-
-          console.warn("Demo API error:", errorText);
-
-          if (
-            message.req_id === state.pendingProposalReqId
-          ) {
-            state.pendingProposalReqId = null;
-            state.latestProposal = null;
-
-            setStatus(
-              "quoteStatus",
-              "Quote failed: " + errorText,
-              "#ef4444"
-            );
-
-            setText("quoteStake", "--");
-            setText("quotePayout", "--");
-          }
-
-          return;
-        }
-
-        if (
-          message.msg_type === "proposal" &&
-          message.proposal
-        ) {
-          if (
-            message.req_id !== state.pendingProposalReqId
-          ) {
-            console.log("Unmatched proposal response ignored.");
-            return;
-          }
-
-          const proposal = message.proposal;
-          const askPrice = Number(proposal.ask_price);
-          const payout = Number(proposal.payout);
-
-          if (
-            !proposal.id ||
-            !Number.isFinite(askPrice) ||
-            !Number.isFinite(payout)
-          ) {
-            state.pendingProposalReqId = null;
-            state.latestProposal = null;
-
-            setStatus(
-              "quoteStatus",
-              "The quote response was incomplete. Please request another quote.",
-              "#ef4444"
-            );
-
-            return;
-          }
-
-          const quoteDetails = state.pendingProposalDetails;
-
-state.latestProposal = {
-  id: proposal.id,
-  askPrice,
-  payout,
-  receivedAt: Date.now(),
-  symbol: quoteDetails
-    ? quoteDetails.symbol
-    : state.symbol,
-  amount: quoteDetails
-    ? quoteDetails.amount
-    : null,
-  contractType: quoteDetails
-    ? quoteDetails.contractType
-    : null,
-  duration: quoteDetails
-    ? quoteDetails.duration
-    : null,
-  barrier: quoteDetails
-    ? quoteDetails.barrier
-    : null
-};
-
-state.pendingProposalReqId = null;
-state.pendingProposalDetails = null;
-          setText("quoteStake", askPrice.toFixed(2));
-setText("quotePayout", payout.toFixed(2));
-
-          setStatus(
-  "quoteStatus",
-  "Demo quote received. Review the terms before confirming your demo purchase.",
-  "#22c55e"
-);
-
-          const details = $("quoteDetails");
-
-          if (details) {
-            details.textContent =
-              proposal.longcode ||
-              "Quote received from Deriv. This is an estimate, not a purchase.";
-          }
-
-          console.log("Demo quote received. No order placed.");
-          return;
-        }
-
-        console.log(
-          "Demo trading socket message:",
-          message.msg_type || "response received"
-        );
-      } catch (error) {
-        console.warn(
-          "Could not process demo socket response:",
-          error
-        );
-      }
+      setStatus(
+        "quoteStatus",
+        "Demo quote connection failed. Check Render logs.",
+        "#ef4444"
+      );
     });
-    socket.addEventListener("error", () => {
-  state.tradingConnected = false;
 
-  console.error(
-    "Demo trading socket connection error. Check the Network panel for the WebSocket handshake."
-  );
+    socket.addEventListener("close", () => {
+      if (state.tradingSocket !== socket) return;
 
-  setStatus(
-    "quoteStatus",
-    "Demo connection failed. Check the WebSocket connection and Render logs.",
-    "#ef4444"
-  );
-});
+      state.tradingSocket = null;
+      state.tradingConnected = false;
+      state.tradingConnecting = false;
 
-socket.addEventListener("close", () => {
-  if (state.tradingSocket !== socket) return;
-
-  state.tradingSocket = null;
-  state.tradingConnected = false;
-  state.tradingConnecting = false;
-
-  // A quote from a closed connection must not be reused.
-  state.latestProposal = null;
-  state.pendingProposalReqId = null;
-  state.pendingProposalDetails = null;
-  state.pendingBuyReqId = null;
-
-  const button = $("confirmBuy");
-  if (button) {
-    button.disabled = true;
-    button.textContent = "Request a fresh demo quote";
-  }
-
-  setStatus(
-    "quoteStatus",
-    "Demo connection closed. Reconnect and request a fresh quote.",
-    "#ef4444"
-  );
-     console.warn("Demo trading socket closed; old quote cleared.");
-});
+      clearQuote(
+        "Demo quote connection closed. Recheck the demo account."
+      );
+    });
   } catch (error) {
     state.tradingConnected = false;
     state.tradingSocket = null;
 
+    setStatus(
+      "quoteStatus",
+      error.message || "Demo quote connection unavailable.",
+      "#ef4444"
+    );
+
     console.warn(
-      "Demo trading connection unavailable:",
+      "Demo quote connection unavailable:",
       error.message
     );
   } finally {
     state.tradingConnecting = false;
   }
 }
-
-async function connectRealTradingSocket() {
-  if (state.realTradingConnecting || state.realTradingConnected) {
-    return;
-  }
-
-  state.realTradingConnecting = true;
-
-  try {
-    const response = await fetch(
-      "/api/real-trading-connection",
-      {
-        method: "GET",
-        credentials: "same-origin",
-        cache: "no-store"
-      }
-    );
-
-    const data = await response.json();
-
-    if (!response.ok || !data.connected || data.account_type !== "real") {
-      throw new Error(
-        data.error || "Real-account connection was not authorized."
-      );
-    }
-
-    const url = new URL(data.ws_url);
-
-    if (
-      url.protocol !== "wss:" ||
-      url.hostname !== "api.derivws.com" ||
-      url.pathname !== "/trading/v1/options/ws/real" ||
-      !url.searchParams.has("otp")
-    ) {
-      throw new Error("The real-account WebSocket URL failed validation.");
-    }
-
-    if (state.realTradingSocket) {
-      state.realTradingSocket.close();
-      state.realTradingSocket = null;
-    }
-
-    const socket = new WebSocket(data.ws_url);
-    state.realTradingSocket = socket;
-
-    socket.addEventListener("open", () => {
-      if (state.realTradingSocket !== socket) {
-        socket.close();
-        return;
-      }
-
-      state.realTradingConnected = true;
-
-      setStatus(
-        "accountMessage",
-        "Real-account WebSocket connected. Order placement is not yet enabled.",
-        "#f59e0b"
-      );
-    });
-
-    socket.addEventListener("error", () => {
-      if (state.realTradingSocket !== socket) return;
-
-      state.realTradingConnected = false;
-
-      setStatus(
-        "accountMessage",
-        "Real-account WebSocket connection failed.",
-        "#ff6d80"
-      );
-    });
-
-    socket.addEventListener("close", () => {
-      if (state.realTradingSocket !== socket) return;
-
-      state.realTradingConnected = false;
-      state.realTradingSocket = null;
-    });
-
-  } catch (error) {
-    setStatus(
-      "accountMessage",
-      error.message || "Unable to connect to the real account.",
-      "#ff6d80"
-    );
-  } finally {
-    state.realTradingConnecting = false;
-  }
-}
-
 /* ---------------- DEMO QUOTE REQUEST ---------------- */
 
-
 function requestDemoQuote() {
-  
   if (state.activeTradingMode !== "demo") {
     setStatus(
       "quoteStatus",
-      "Demo quote blocked. The selected account is not Demo.",
-      "#ff6d80"
+      "Quotes are available only in Demo Account mode.",
+      "#ef4444"
     );
     return;
   }
@@ -1243,7 +1000,7 @@ function requestDemoQuote() {
   ) {
     setStatus(
       "quoteStatus",
-      "Demo connection is not ready. Refresh your demo account connection and try again.",
+      "Demo quote connection is not ready. Refresh the demo account first.",
       "#ef4444"
     );
     return;
@@ -1257,7 +1014,7 @@ function requestDemoQuote() {
   if (!amountElement || !typeElement || !durationElement) {
     setStatus(
       "quoteStatus",
-      "Quote controls are missing. Check the Contract Quote panel in index.html.",
+      "Quote controls are missing. Check index.html.",
       "#ef4444"
     );
     return;
@@ -1268,12 +1025,20 @@ function requestDemoQuote() {
   const duration = Number(durationElement.value);
 
   if (![1, 2, 5].includes(amount)) {
-    setStatus("quoteStatus", "Choose a valid stake.", "#ef4444");
+    setStatus(
+      "quoteStatus",
+      "Choose a valid stake.",
+      "#ef4444"
+           );
     return;
   }
 
   if (![1, 2, 5, 10].includes(duration)) {
-    setStatus("quoteStatus", "Choose a valid duration.", "#ef4444");
+    setStatus(
+      "quoteStatus",
+      "Choose a valid duration.",
+      "#ef4444"
+    );
     return;
   }
 
@@ -1305,8 +1070,10 @@ function requestDemoQuote() {
     req_id: ++state.tradeRequestId
   };
 
+  let barrier = null;
+
   if (
-contractType === "DIGITOVER" ||
+    contractType === "DIGITOVER" ||
     contractType === "DIGITUNDER"
   ) {
     if (!barrierElement) {
@@ -1318,7 +1085,7 @@ contractType === "DIGITOVER" ||
       return;
     }
 
-    const barrier = Number(barrierElement.value);
+    barrier = Number(barrierElement.value);
 
     if (
       !Number.isInteger(barrier) ||
@@ -1338,585 +1105,394 @@ contractType === "DIGITOVER" ||
     payload.barrier = String(barrier);
   }
 
+  state.latestProposal = null;
+  state.pendingProposalReqId = payload.req_id;
+
   state.pendingProposalDetails = {
-    reqId: payload.req_id,
     symbol: state.symbol,
     amount,
     contractType,
     duration,
-    barrier: payload.barrier ?? null,
-    requestedAt: Date.now()
+    barrier
   };
-
-  state.pendingProposalReqId = payload.req_id;
-  state.latestProposal = null;
 
   setText("quoteStake", "--");
   setText("quotePayout", "--");
 
   setStatus(
     "quoteStatus",
-    "Requesting demo quote...",
+    "Requesting a demo quote...",
     "#f59e0b"
   );
 
   setText(
     "quoteDetails",
-    "Waiting for a fresh Deriv demo quote. No purchase has been made yet."
+    "Waiting for Deriv. No purchase will be made."
   );
 
-  const sent = sendJson(socket, payload);
-
-  if (!sent) {
+  if (!sendJson(socket, payload)) {
     state.pendingProposalReqId = null;
     state.pendingProposalDetails = null;
 
     setStatus(
       "quoteStatus",
-      "Could not send the quote request. Check the demo connection.",
+      "Could not send quote request. Check the connection.",
       "#ef4444"
     );
   }
 }
 
-function confirmDemoBuy() {
-  
-  if (state.activeTradingMode !== "demo") {
-    setStatus(
-      "quoteStatus",
-      "Demo purchase blocked. The selected account is not Demo.",
-      "#ff6d80"
-    );
-    return;
-  }
-
-  const button = $("confirmBuy");
-  const socket = state.tradingSocket;
-  const quote = state.latestProposal;
-
-  if (!button) return;
-
-  if (
-    !state.tradingConnected ||
-    !socket ||
-    socket.readyState !== WebSocket.OPEN
-  ) {
-    button.disabled = true;
-    button.textContent = "Demo connection unavailable";
-    return;
-  }
-
-  if (
-    !quote ||
-    !quote.id ||
-    !Number.isFinite(Number(quote.askPrice)) ||
-    Number(quote.askPrice) <= 0
-  ) {
-    button.disabled = true;
-    button.textContent = "Request a fresh quote first";
-    return;
-  }
-
-  if (
-    !Number.isFinite(quote.receivedAt) ||
-    Date.now() - quote.receivedAt > 30000
-  ) {
-    state.latestProposal = null;
-    button.disabled = true;
-    button.textContent = "Quote expired — request again";
-    return;
-  }
-
-  if (
-    !quote.symbol ||
-    !quote.amount ||
-    !quote.contractType ||
-    !quote.duration
-  ) {
-     button.disabled = true;
-    button.textContent = "Quote details incomplete";
-    return;
-  }
-
-  if (state.pendingBuyReqId !== null) {
-    button.disabled = true;
-    button.textContent = "Purchase already pending";
-    return;
-  }
-
-  const currentType = $("tradeContractType")?.value;
-  const currentAmount = Number($("tradeAmount")?.value);
-  const currentDuration = Number($("tradeDuration")?.value);
-
-  const currentBarrier = [
-    "DIGITOVER",
-    "DIGITUNDER"
-  ].includes(currentType)
-    ? String($("tradeBarrier")?.value ?? "")
-    : null;
-
-  if (
-    quote.symbol !== state.symbol ||
-quote.contractType !== currentType ||
-    Number(quote.amount) !== currentAmount ||
-    Number(quote.duration) !== currentDuration ||
-    (
-      currentBarrier !== null &&
-      String(quote.barrier) !== currentBarrier
-    )
-  ) {
-    button.disabled = true;
-    button.textContent = "Settings changed — request a new quote";
-    return;
-  }
-
-  if (
-    !window.confirm(
-      "Buy this contract on your Deriv DEMO account for " +
-      Number(quote.askPrice).toFixed(2) +
-      " " +
-      (quote.currency || "USD") +
-      "? This does not use a real-money account."
-    )
-  ) {
-    return;
-  }
-
-  const reqId = ++state.tradeRequestId;
-  state.pendingBuyReqId = reqId;
-  button.disabled = true;
-  button.textContent = "Submitting demo purchase…";
-
-  const sent = sendJson(socket, {
-    buy: quote.id,
-    price: Number(quote.askPrice),
-    req_id: reqId
-  });
-
-  if (!sent) {
-    state.pendingBuyReqId = null;
-    button.disabled = true;
-    button.textContent = "Send failed — request a new quote";
-  }
-       }
-   
-
-       
 /* ---------------- ACCOUNT STATUS ---------------- */
 
 async function refreshAccount() {
+  const accountMode = $("accountMode");
+  const mode = accountMode ? accountMode.value : "demo";
+
+  if (mode !== "demo") {
+    if (accountMode) accountMode.value = "demo";
+
+    state.activeTradingMode = "demo";
+
+    clearQuote("Real-money trading is disabled.");
+
+    setStatus(
+      "accountStatus",
+      "Demo account only",
+      "#f59e0b"
+    );
+
+    setText("accountId", "--");
+    setText("accountBalance", "--");
+    setText("tradingMode", "Demo only");
+
+    setStatus(
+      "accountMessage",
+      "Real-money trading and order placement remain disabled.",
+      "#f59e0b"
+    );
+
+    return;
+  }
+
+  state.activeTradingMode = "demo";
+
   setStatus(
     "accountStatus",
-    "Checking account status...",
+    "Checking demo account...",
     "#f59e0b"
   );
 
-  try {
-    
-const requestedMode =
-  document.getElementById("accountMode")?.value || "demo";
+  setStatus(
+    "accountMessage",
+    "Checking your Deriv demo account. No trade will be placed.",
+    "#f59e0b"
+  );
+       try {
+    const response = await fetch(
+      "/api/account?mode=demo",
+      {
+        method: "GET",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json"
+        }
+      }
+    );
 
-const response = await fetch(
-  `/api/account?mode=${encodeURIComponent(requestedMode)}`,
-  {
-    method: "GET",
-    credentials: "include",
-    headers: {
-      Accept: "application/json"
-    }
-  }
-);
-     
     const data = await response.json();
 
-    if (!response.ok || data.error) {
-      setStatus(
-        "accountStatus",
-        "Unavailable — login required or account check failed.",
-        "#f59e0b"
+    if (!response.ok || !data || data.error) {
+      throw new Error(
+        data?.error ||
+        `Account check failed (${response.status}).`
       );
-
-      console.warn("Account check response:", data);
-      return;
-    }
-console.warn("Unexpected account type:", account);
-      return;
     }
 
+    const account = data.account || data;
 
-        setStatus(
+    const accountId =
+      account.account_id ||
+      account.id ||
+      account.loginid ||
+      account.accountId;
+
+    const balance = Number(
+      account.balance ??
+      account.available_balance
+    );
+
+    if (!accountId) {
+      throw new Error(
+        "The server did not return a demo account ID. Log in with Deriv again."
+      );
+    }
+
+    setText("accountId", accountId);
+
+    setText(
+      "accountBalance",
+      Number.isFinite(balance)
+        ? `${balance.toFixed(2)} ${account.currency || "USD"}`
+        : "--"
+    );
+
+    setText("tradingMode", "Demo only");
+
+    setStatus(
       "accountStatus",
-      `${requestedMode === "real" ? "Real" : "Demo"} account connected`,
+      "Demo account connected",
       "#22c55e"
     );
 
     setStatus(
       "accountMessage",
-      requestedMode === "real"
-        ? "Real account details checked. Real-money order placement remains disabled."
-        : "Demo account details checked. Demo testing remains available.",
-      requestedMode === "real" ? "#f59e0b" : "#22c55e"
+      "Demo account checked. Order placement remains disabled.",
+      "#22c55e"
     );
 
-    setText(
-      "tradingMode",
-      requestedMode === "real"
-        ? "Real account selected — orders disabled"
-        : "Demo account"
-    );
-
-    connectTradingSocket();
-    setText(
-      "accountId",
-      account.account_id ||
-      account.loginid ||
-      account.id ||
-      "Connected"
-    );
-
-    const balance =
-      account.balance &&
-      typeof account.balance === "object"
-        ? account.balance.balance
-        : account.balance;
-
-    if (balance !== undefined && balance !== null) {
-      setText("accountBalance", balance);
-      setText("balance", balance);
-    }
+    await connectTradingSocket();
   } catch (error) {
-    console.warn("Account request failed:", error);
+    console.error("Demo account check failed:", error);
 
-    setStatus(
+    setText("accountId", "--");
+    setText("accountBalance", "--");
+    setText("tradingMode", "Demo only");
+          setStatus(
       "accountStatus",
-      "Account unavailable. Public market monitoring can work independently.",
-      "#f59e0b"
-    );
-  }
-}
-
-/* ---------------- BUTTONS AND EVENTS ---------------- */
-
-function initialise() {
-     const quoteButton = $("requestQuote");
-
-  if (quoteButton) {
-    quoteButton.addEventListener("click", requestDemoQuote);
-  }
-  const marketSelect = $("marketSelect");
-
-  if (marketSelect) {
-    marketSelect.addEventListener("change", event => {
-      changeMarket(event.target.value);
-    });
-  }
-
-  const loginButton = $("loginButton");
-
-  if (loginButton) {
-    loginButton.addEventListener("click", () => {
-      window.location.href = "/login";
-    });
-  }
-
-  const openDeriv = $("openDeriv");
-
-  if (openDeriv) {
-    openDeriv.addEventListener("click", () => {
-      window.open(
-        "https://deriv.com/",
-        "_blank",
-        "noopener,noreferrer"
-      );
-    });
-  }
-
-  const startButton = $("startMonitor");
-
-  if (startButton) {
-    startButton.addEventListener("click", () => {
-      state.monitoring = true;
-      updateSignal();
-
-
-      recordObservation(
-        "Signal monitoring started. No orders placed."
-      );
-    });
-  }
-
-  const stopButton = $("stopMonitor");
-
-  if (stopButton) {
-    stopButton.addEventListener("click", () => {
-      state.monitoring = false;
-      updateSignal();
-
-      recordObservation(
-        "Signal monitoring paused. No orders placed."
-      );
-    });
-  }
-
-  
-  
-const confirmBuy = $("confirmBuy");
-
-if (confirmBuy) {
-   confirmBuy.disabled = false;
-  confirmBuy.textContent = "CONFIRM DEMO BUY";
-
-  confirmBuy.addEventListener("click", event => {
-    event.preventDefault();
-    confirmDemoBuy();
-  });
-     }
-     
-         
-
-  
-const accountMode = $("accountMode");
-
-if (accountMode) {
-  accountMode.disabled = false;
-  accountMode.title =
-    "Select Demo or Real to check the account. Real-money orders remain disabled.";
-
-  accountMode.addEventListener("change", async () => {
-    const mode = accountMode.value;
-    
-  state.activeTradingMode = mode;
-
-  // Invalidate any quote when switching accounts.
-  state.latestProposal = null;
-  state.pendingProposalReqId = null;
-  state.pendingProposalDetails = null;
-  state.pendingBuyReqId = null;
-
-  const buyButton = $("confirmBuy");
-  if (buyButton) {
-    buyButton.disabled = true;
-    buyButton.textContent = "REQUEST A FRESH QUOTE";
-  }
-
-  const quoteStatus = $("quoteStatus");
-  if (quoteStatus) {
-    quoteStatus.textContent =
-      "Account changed. Request a new quote for the selected account.";
-  }
-
-
-    setStatus(
-      "accountStatus",
-      `Checking ${mode} account...`,
-      "#f59e0b"
+      "Demo account not connected",
+      "#ef4444"
     );
 
     setStatus(
       "accountMessage",
-      mode === "real"
-        ? "Checking real-account connection. Trading orders remain disabled."
-        : "Checking demo-account connection.",
-      "#f59e0b"
+      error.message ||
+        "Unable to verify the demo account. Log in with Deriv and try again.",
+      "#ef4444"
     );
 
-    try {
-      const response = await fetch(
-        `/api/account?mode=${encodeURIComponent(mode)}`,
-        {
-          method: "GET",
-          credentials: "same-origin"
-        }
-      );
+    clearQuote(
+      "Connect your demo account to request a quote."
+    );
+  }
+}
+/* ---------------- LOGIN BUTTON ---------------- */
 
-      const data = await response.json();
-
-      if (!response.ok || !data || data.error) {
-        throw new Error(
-          data?.error || `Account check failed (${response.status}).`
-        );
-      }
-
-      // Do not assume the requested account was returned.
-      const account = data.account || data;
-
-      if (accountMode.value !== mode) return;
-      
-if (mode === "real") {
-        const verifiedType = String(
-          account.account_type || account.type || ""
-        ).toLowerCase();
-
-        if (verifiedType !== "real") {
-
-          throw new Error(
-            "The selected account was not verified as a real account."
-          );
-        }
-
-                setStatus(
-          "accountMessage",
-          "Real account details checked. Checking the separate real connection...",
-          "#f59e0b"
-        );
-
-        // Connect only after the account check succeeds.
-        await connectRealTradingSocket();
-      } else {
-        if (state.realTradingSocket) {
-          state.realTradingSocket.close();
-          state.realTradingSocket = null;
-        }
-
-        state.realTradingConnected = false;
-    }
-
-
-      const accountId = $("accountId");
-      const accountBalance = $("accountBalance");
-      const tradingMode = $("tradingMode");
-
-      if (accountId) {
-        accountId.textContent =
-          account.account_id || account.loginid || "--";
-      }
-
-      if (accountBalance) {
-        const balance = Number(account.balance);
-
-        accountBalance.textContent =
-          account.balance !== undefined &&
-          Number.isFinite(balance)
-            ? `${account.currency || "USD"} ${balance.toFixed(2)}`
-            : "--";
-      }
-
-      if (tradingMode) {
-        tradingMode.textContent =
-          mode === "real"
-            ? "Real account selected — orders disabled"
-            : "Demo account";
-      }
-
-      setStatus(
-        "accountStatus",
-        account.account_id || account.loginid
-          ? `${mode === "real" ? "Real" : "Demo"} account identified`
-          : `${mode} account response received; identity needs verification`,
-        mode === "real" ? "#f59e0b" : "#22c55e"
-      );
-
-      setStatus(
-        "accountMessage",
-        mode === "real"
-          ? "Real account details checked. Real-money order placement remains disabled."
-          : "Demo account details checked. Demo testing remains available.",
-        mode === "real" ? "#f59e0b" : "#22c55e"
-      );
-    } catch (error) {
-      setStatus(
-        "accountStatus",
-        "Account check failed",
-        "#ff6d80"
-      );
-
-      setStatus(
-        "accountMessage",
-        error.message || "Unable to check this account.",
-        "#ff6d80"
-      );
-    }
-  });
+function loginWithDeriv() {
+  window.location.href = "/login";
 }
 
-   
-   
+/* ---------------- EXTERNAL DERIV LINKS ---------------- */
+
+function openDerivPage(path) {
+  const allowedPaths = {
+    home: "https://deriv.com/",
+    deposit: "https://app.deriv.com/cashier/deposit",
+    withdraw: "https://app.deriv.com/cashier/withdraw"
+  };
+
+  const url = allowedPaths[path];
+
+  if (!url) {
+    console.warn("Unknown Deriv destination.");
+    return;
+  }
+
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+/* ---------------- EVENT LISTENERS ---------------- */
+
+function setupEventListeners() {
+  const loginButton = $("loginButton");
   const refreshButton = $("refreshAccount");
+  const accountMode = $("accountMode");
+  const requestQuoteButton = $("requestQuote");
+  const marketSelect = $("marketSelect");
+  const startButton = $("startMonitor");
+  const stopButton = $("stopMonitor");
+  const recordButton = $("recordObservation");
+  const testButton = $("testStrategy");
+  const confirmBuyButton = $("confirmBuy");
+
+  if (loginButton) {
+    loginButton.addEventListener("click", loginWithDeriv);
+  }
 
   if (refreshButton) {
     refreshButton.addEventListener("click", refreshAccount);
   }
 
-  const recordButton = $("recordObservation");
-
-  if (recordButton) {
-    recordButton.addEventListener("click", () => {
-      const strategy = $("testStrategy");
-      const notes = $("testNotes");
-      const recordStatus = $("recordStatus");
-
-      const strategyName = strategy
-        ? strategy.options[strategy.selectedIndex].text
-        : "Unspecified strategy";
-
-const noteText = notes
-        ? notes.value.trim()
-        : "";
-
-      if (!noteText) {
-        if (recordStatus) {
-          recordStatus.textContent =
-            "Please enter your observation notes first.";
-        }
-        return;
+  if (accountMode) {
+    accountMode.addEventListener("change", () => {
+      if (accountMode.value !== "demo") {
+        accountMode.value = "demo";
       }
 
-      recordObservation(
-        strategyName + ": " + noteText
-       );
-
-      if (notes) notes.value = "";
-
-      if (recordStatus) {
-        recordStatus.textContent =
-          "Observation recorded for this session.";
-      }
+      refreshAccount();
     });
-}
-                                 
-  window.addEventListener("resize", renderChart);
+  }
 
-  renderChart();
-  renderDigitHistory();
-  renderDigitAnalysis();
-  renderObservations();
-  updateSignal();
+  if (requestQuoteButton) {
+    requestQuoteButton.addEventListener(
+      "click",
+      requestDemoQuote
+    );
+  }
 
-  refreshAccount();
-  connectPublicSocket();
+  if (marketSelect) {
+    marketSelect.addEventListener("change", () => {
+      const symbol = marketSelect.value;
 
-const appStatus = $("appStatus");
+      if (!symbol) return;
 
-if (appStatus) {
-  appStatus.textContent = "Application running";
-         }
-                                  
-  console.log("Tradedollars signal-only script initialized.");
-  console.log("Real-money trading: DISABLED.");
-  console.log("Automatic order placement: DISABLED.");
-}
+      state.symbol = symbol;
+      state.ticks = [];
+      state.prices = [];
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", initialise);
-} else {
-  initialise();
-}
+      setText(
+        "selectedMarket",
+        marketSelect.options[
+          marketSelect.selectedIndex
+        ]?.textContent || symbol
+      );
 
+      renderDigitHistory();
+      renderChart();
+      updateAnalysis();
+      updateSignal();
+      connectPublicSocket();
+    });
+  }
 
+  if (startButton) {
+    startButton.addEventListener("click", () => {
+      state.monitoring = true;
 
-
-    const account =
-      data.account ||
-      data.data ||
-      data;
-
-if (
-  String(account.account_type || "").toLowerCase() !== requestedMode
-) {
       setStatus(
-        "accountStatus",
-        "Account type could not be verified.",
+        "botStatus",
+               "Monitoring live data — no trades will be placed.",
+        "#22c55e"
+      );
+
+      updateSignal();
+    });
+  }
+
+  if (stopButton) {
+    stopButton.addEventListener("click", () => {
+      state.monitoring = false;
+
+      setStatus(
+        "botStatus",
+        "Monitoring paused. No trades were placed.",
         "#f59e0b"
       );
 
-      
+      updateSignal();
+    });
+  }
+
+  if (recordButton) {
+    recordButton.addEventListener(
+      "click",
+      recordObservation
+    );
+  }
+
+  if (testButton) {
+    testButton.addEventListener("click", () => {
+      updateAnalysis();
+      updateSignal();
+
+      setStatus(
+        "analysisStatus",
+        `Analysis uses ${state.ticks.length} observed ticks. Historical frequencies are descriptive, not predictions.`,
+        "#60a5fa"
+      );
+    });
+  }
+
+  if (confirmBuyButton) {
+    confirmBuyButton.disabled = true;
+    confirmBuyButton.textContent =
+      "Order placement disabled";
+
+    confirmBuyButton.addEventListener("click", event => {
+      event.preventDefault();
+
+      setStatus(
+        "quoteStatus",
+        "Order placement is disabled. Quotes and analysis only.",
+        "#f59e0b"
+      );
+    });
+  }
+
+  const depositButton = $("depositButton");
+  const withdrawButton = $("withdrawButton");
+  const openDerivButton = $("openDeriv");
+
+  if (depositButton) {
+    depositButton.addEventListener("click", () => {
+      openDerivPage("deposit");
+    });
+  }
+
+  if (withdrawButton) {
+    withdrawButton.addEventListener("click", () => {
+      openDerivPage("withdraw");
+    });
+  }
+
+  if (openDerivButton) {
+    openDerivButton.addEventListener("click", () => {
+      openDerivPage("home");
+    });
+  }
+}
+
+/* ---------------- INITIALISE APPLICATION ---------------- */
+
+function initialise() {
+  setText("appStatus", "Starting application...");
+  setText("tradingMode", "Demo only");
+
+  setStatus(
+    "marketStatus",
+    "Connecting to live market data...",
+    "#f59e0b"
+  );
+
+   setStatus(
+    "priceStatus",
+    "Waiting for market ticks...",
+    "#f59e0b"
+  );
+
+  setStatus(
+    "quoteStatus",
+    "Demo quote connection not checked yet.",
+    "#94a3b8"
+  );
+
+  setStatus(
+    "botStatus",
+    "Monitoring stopped. No trades will be placed.",
+    "#94a3b8"
+  );
+
+  setupEventListeners();
+  connectPublicSocket();
+  refreshAccount();
+}
+
+if (document.readyState === "loading") {
+  document.addEventListener(
+    "DOMContentLoaded",
+    initialise,
+    { once: true }
+  );
+} else {
+  initialise();
+}
+       
